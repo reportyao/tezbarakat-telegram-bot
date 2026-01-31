@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, RefreshCw, TestTube } from 'lucide-react';
+import { Save, TestTube } from 'lucide-react';
 import { configApi, dashboardApi } from '@/services/api';
 import {
   Button,
@@ -94,7 +94,7 @@ export default function Config() {
   const testDifyMutation = useMutation({
     mutationFn: dashboardApi.testDify,
     onSuccess: (result) => {
-      setTestResult(result);
+      setTestResult({ success: result.success, message: result.message || '' });
     },
   });
 

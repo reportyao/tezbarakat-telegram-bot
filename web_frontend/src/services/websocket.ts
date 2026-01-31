@@ -1,4 +1,4 @@
-import type { WSMessage, LogEntry, Alert } from '@/types';
+import type { WSMessage } from '@/types';
 
 type MessageHandler = (message: WSMessage) => void;
 
@@ -8,7 +8,7 @@ class WebSocketService {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 3000;
   private handlers: Set<MessageHandler> = new Set();
-  private pingInterval: NodeJS.Timeout | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
 
   connect(): void {
     const token = localStorage.getItem('token');

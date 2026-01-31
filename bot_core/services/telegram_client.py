@@ -20,7 +20,7 @@ from telethon.errors import (
     PeerFloodError
 )
 from telethon.tl.types import User, Chat, Channel, Message
-from telethon.tl.functions.messages import SetTypingAction
+from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
 from loguru import logger
 
@@ -288,7 +288,7 @@ class TelegramClientManager:
     async def send_typing_action(self, client: TelegramClient, chat_id: int, duration: int = 3):
         """发送打字状态"""
         try:
-            await client(SetTypingAction(
+            await client(SetTypingRequest(
                 peer=chat_id,
                 action=SendMessageTypingAction()
             ))

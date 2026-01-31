@@ -1,8 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import type {
   Account, Group, Keyword, User, Message, Reply, Config, Alert,
-  DashboardData, BotStatus, LoginRequest, TokenResponse, BaseResponse,
-  PaginatedResponse
+  DashboardData, BotStatus, LoginRequest, TokenResponse, BaseResponse
 } from '@/types';
 
 // 创建 axios 实例
