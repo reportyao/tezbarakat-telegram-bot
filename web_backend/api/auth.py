@@ -66,7 +66,7 @@ async def get_bot_status(
     current_user: dict = Depends(get_current_user)
 ):
     """获取 Bot 运行状态"""
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     
     status_info = bot_manager.get_status()
     
@@ -86,7 +86,7 @@ async def control_bot(
     current_user: dict = Depends(get_current_user)
 ):
     """控制 Bot 启动/停止/重启"""
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     
     try:
         if control.action == 'start':
@@ -115,7 +115,7 @@ async def test_dify_connection(
     current_user: dict = Depends(get_current_user)
 ):
     """测试 Dify 连接"""
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     
     try:
         success, message = await bot_manager.test_dify_connection()

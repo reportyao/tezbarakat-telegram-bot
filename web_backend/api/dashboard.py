@@ -30,7 +30,7 @@ async def get_dashboard(
     stats = await service.get_dashboard_stats()
     
     # 获取 Bot 运行状态
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     bot_running = bot_manager.is_running()
     bot_uptime = bot_manager.get_uptime()
     connected_accounts = bot_manager.get_connected_accounts()
@@ -114,7 +114,7 @@ async def get_dashboard_stats(
     stats = await service.get_dashboard_stats()
     
     # 获取 Bot 运行状态
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     bot_running = bot_manager.is_running()
     
     return DashboardStats(
