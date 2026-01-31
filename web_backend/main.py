@@ -63,21 +63,26 @@ app = FastAPI(
 
 # 配置 CORS
 # 生产环境应该限制具体域名
-allowed_origins = settings.cors_origins if settings.debug else [
-    origin for origin in settings.cors_origins 
-    if origin != "*"
-]
-# 如果没有配置具体域名，至少允许同源请求
-if not allowed_origins:
-    allowed_origins = ["*"]  # 回退到允许所有（应在生产环境配置具体域名）
+if settings.debug:
+    # 调试模式下，如果未配置，则允许所有
+    allowed_origins = settings.cors_origins if settings.cors_origins else ["*"]
+else:
+    # 生产模式下，只允许配置的非通配符域名
+    allowed_origins = [
+        origin for origin in settings.cors_origins if origin != "*"
+    ]
+    if not allowed_origins:
+        logger.warning("生产环境中未配置具体的 CORS 源 (CORS_ORIGINS)，将禁用所有来自浏览器的跨域请求。")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["*"],
-)
+# 只有在 allowed_origins 列表非空时才添加 CORS 中间件
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 
 # 全局异常处理
