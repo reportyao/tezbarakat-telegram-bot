@@ -40,6 +40,11 @@ interface ConfigFormData {
   // 功能开关
   enable_group_reply: boolean;
   enable_private_message: boolean;
+  enable_dify_analysis: boolean;
+  
+  // 回复模板
+  group_reply_template: string;
+  private_reply_template: string;
 }
 
 const defaultConfig: ConfigFormData = {
@@ -60,6 +65,9 @@ const defaultConfig: ConfigFormData = {
   active_hours_end: 24,
   enable_group_reply: true,
   enable_private_message: true,
+  enable_dify_analysis: true,
+  group_reply_template: '您好 {username}！感谢您的咨询，我们的专业顾问会尽快与您联系。',
+  private_reply_template: '您好！感谢您对我们服务的关注。我是 Tezbarakat 的客服，很高兴为您服务。请问有什么可以帮助您的？',
 };
 
 export default function Config() {
@@ -95,7 +103,17 @@ export default function Config() {
     if (data?.configs) {
       const configMap: Record<string, any> = {};
       data.configs.forEach((c) => {
-        configMap[c.key] = c.value;
+        // 处理 JSONB 值
+        let value = c.value;
+        if (typeof value === 'string') {
+          // 尝试解析 JSON 字符串
+          try {
+            value = JSON.parse(value);
+          } catch {
+            // 保持原值
+          }
+        }
+        configMap[c.key] = value;
       });
       setFormData((prev) => ({
         ...prev,
@@ -298,6 +316,42 @@ export default function Config() {
         </CardContent>
       </Card>
 
+      {/* 回复模板配置 */}
+      <Card>
+        <CardHeader>
+          <h3 className="text-lg font-semibold">回复模板配置</h3>
+          <p className="text-sm text-gray-500">配置禁用 Dify 时使用的回复模板，支持变量：{'{username}'}, {'{name}'}, {'{first_name}'}</p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                群内回复模板
+              </label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                rows={3}
+                value={formData.group_reply_template}
+                onChange={(e) => handleChange('group_reply_template', e.target.value)}
+                placeholder="您好 {username}！感谢您的咨询..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                私信回复模板
+              </label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                rows={3}
+                value={formData.private_reply_template}
+                onChange={(e) => handleChange('private_reply_template', e.target.value)}
+                placeholder="您好！感谢您对我们服务的关注..."
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* 功能开关 */}
       <Card>
         <CardHeader>
@@ -306,6 +360,16 @@ export default function Config() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Dify AI 分析</p>
+                <p className="text-sm text-gray-500">启用后，使用 Dify 进行意图分析；禁用后，使用模板回复</p>
+              </div>
+              <Switch
+                checked={formData.enable_dify_analysis}
+                onChange={(checked) => handleChange('enable_dify_analysis', checked)}
+              />
+            </div>
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">群内回复</p>

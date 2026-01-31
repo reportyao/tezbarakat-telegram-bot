@@ -105,6 +105,26 @@ class BotSettings(BaseSettings):
         default=True,
         description="是否启用私信"
     )
+    enable_dify_analysis: bool = Field(
+        default=True,
+        description="是否启用 Dify 意图分析"
+    )
+    
+    # 回复模板
+    group_reply_template: str = Field(
+        default="您好 {username}！感谢您的咨询，我们的专业顾问会尽快与您联系。",
+        description="群内回复模板"
+    )
+    private_reply_template: str = Field(
+        default="您好！感谢您对我们服务的关注。我是 Tezbarakat 的客服，很高兴为您服务。请问有什么可以帮助您的？",
+        description="私信回复模板"
+    )
+    
+    # 简单延迟配置（兼容旧代码）
+    reply_delay_seconds: int = Field(
+        default=30,
+        description="回复延迟秒数（简化版）"
+    )
     
     # 时区配置
     timezone: str = Field(

@@ -324,8 +324,46 @@ class AlertMarkRead(BaseModel):
 # 统计相关模型
 # =====================================================
 
+class TodayStats(BaseModel):
+    """今日统计数据"""
+    total_messages_monitored: int = 0
+    keyword_triggered_count: int = 0
+    dify_triggered_count: int = 0
+    group_replies_sent: int = 0
+    private_messages_sent: int = 0
+    new_users_count: int = 0
+
+
+class AccountStatusSummary(BaseModel):
+    """账号状态汇总"""
+    total: int = 0
+    active: int = 0
+    cooling_down: int = 0
+    limited: int = 0
+    banned: int = 0
+
+
+class RecentStatItem(BaseModel):
+    """近期统计项"""
+    date: str
+    total_messages_monitored: int = 0
+    keyword_triggered_count: int = 0
+    dify_triggered_count: int = 0
+    group_replies_sent: int = 0
+    private_messages_sent: int = 0
+
+
+class DashboardData(BaseModel):
+    """仪表盘完整数据 - 匹配前端期望的数据结构"""
+    bot_status: 'BotStatus'
+    today_stats: TodayStats
+    recent_stats: List[RecentStatItem]
+    account_status: AccountStatusSummary
+    recent_alerts: List[AlertResponse]
+
+
 class DashboardStats(BaseModel):
-    """仪表盘统计数据"""
+    """仪表盘统计数据（旧版，保留兼容）"""
     # 今日统计
     today_messages: int = 0
     today_keyword_triggers: int = 0
@@ -433,3 +471,7 @@ class LogEntry(BaseModel):
     message: str
     module: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.now)
+
+
+# 更新前向引用
+DashboardData.model_rebuild()

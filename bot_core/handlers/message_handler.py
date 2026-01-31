@@ -96,6 +96,16 @@ class MessageHandler:
         
         return None
     
+    def _format_template(self, template: str, username: Optional[str] = None, 
+                         first_name: Optional[str] = None) -> str:
+        """格式化回复模板"""
+        name = username or first_name or "朋友"
+        return template.format(
+            username=f"@{username}" if username else name,
+            name=name,
+            first_name=first_name or ""
+        )
+    
     async def handle_group_message(
         self,
         event: events.NewMessage.Event,
@@ -160,7 +170,7 @@ class MessageHandler:
                     )
                     return
             
-            # 3. 调用 Dify 分析
+            # 3. 处理触发的消息
             dify_result = None
             triggered_dify = False
             dify_confidence = None
@@ -169,15 +179,38 @@ class MessageHandler:
                 # 增加关键词命中计数
                 await db_service.increment_keyword_hit(matched_keyword)
                 
-                # 调用 Dify 分析意图
-                dify_result = await dify_service.analyze_intent(
-                    message_text=text,
-                    user_id=user_id,
-                    username=username
-                )
-                
-                triggered_dify = dify_result.get("is_opportunity", False)
-                dify_confidence = dify_result.get("confidence", 0)
+                # 检查是否启用 Dify 分析
+                if bot_settings.enable_dify_analysis:
+                    # 调用 Dify 分析意图
+                    dify_result = await dify_service.analyze_intent(
+                        message_text=text,
+                        user_id=user_id,
+                        username=username
+                    )
+                    
+                    triggered_dify = dify_result.get("is_opportunity", False)
+                    dify_confidence = dify_result.get("confidence", 0)
+                else:
+                    # 不使用 Dify，直接使用模板回复
+                    triggered_dify = True  # 关键词匹配即触发
+                    dify_confidence = 1.0
+                    
+                    # 构建模板回复
+                    dify_result = {
+                        "is_opportunity": True,
+                        "confidence": 1.0,
+                        "group_reply": self._format_template(
+                            bot_settings.group_reply_template,
+                            username=username,
+                            first_name=first_name
+                        ),
+                        "private_reply": self._format_template(
+                            bot_settings.private_reply_template,
+                            username=username,
+                            first_name=first_name
+                        ),
+                        "category": "keyword_match"
+                    }
             
             # 4. 保存消息记录
             await db_service.save_message(
@@ -234,6 +267,7 @@ class MessageHandler:
             
             user_id = sender.id
             username = sender.username
+            first_name = sender.first_name
             
             # 忽略机器人自己的消息
             if user_id in self._our_user_ids:
@@ -245,25 +279,35 @@ class MessageHandler:
             
             logger.info(f"收到私信: {user_id} ({username}) - {text[:50]}...")
             
-            # 获取或创建对话
-            conversation = await db_service.get_or_create_conversation(user_id)
-            
-            # 获取现有的 Dify 对话 ID（可能为 None）
-            existing_conversation_id = getattr(conversation, 'dify_conversation_id', None)
-            
-            # 调用 Dify 知识库对话
-            reply_text, new_conversation_id = await dify_service.chat_with_knowledge(
-                message_text=text,
-                user_id=user_id,
-                conversation_id=existing_conversation_id
-            )
-            
-            # 更新对话记录
-            if new_conversation_id:
-                await db_service.update_conversation(
-                    conversation_id=conversation.id,
-                    dify_conversation_id=new_conversation_id
+            # 检查是否启用 Dify 分析
+            if bot_settings.enable_dify_analysis:
+                # 获取或创建对话
+                conversation = await db_service.get_or_create_conversation(user_id)
+                
+                # 获取现有的 Dify 对话 ID（可能为 None）
+                existing_conversation_id = getattr(conversation, 'dify_conversation_id', None)
+                
+                # 调用 Dify 知识库对话
+                reply_text, new_conversation_id = await dify_service.chat_with_knowledge(
+                    message_text=text,
+                    user_id=user_id,
+                    conversation_id=existing_conversation_id
                 )
+                
+                # 更新对话记录
+                if new_conversation_id:
+                    await db_service.update_conversation(
+                        conversation_id=conversation.id,
+                        dify_conversation_id=new_conversation_id
+                    )
+            else:
+                # 不使用 Dify，使用模板回复
+                reply_text = self._format_template(
+                    bot_settings.private_reply_template,
+                    username=username,
+                    first_name=first_name
+                )
+                new_conversation_id = None
             
             # 发送回复
             if reply_text:

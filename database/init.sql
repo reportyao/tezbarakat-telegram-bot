@@ -177,7 +177,10 @@ INSERT INTO app_config (key, value, description) VALUES
     ('dify_workflow_id', '""', 'Dify 工作流 ID'),
     ('dify_knowledge_workflow_id', '""', 'Dify 知识库工作流 ID'),
     ('telegram_api_id', '""', 'Telegram API ID'),
-    ('telegram_api_hash', '""', 'Telegram API Hash')
+    ('telegram_api_hash', '""', 'Telegram API Hash'),
+    ('enable_dify_analysis', 'true', '是否启用 Dify 意图分析'),
+    ('group_reply_template', '"您好 {username}！感谢您的咨询，我们的专业顾问会尽快与您联系。"', '群内回复模板'),
+    ('private_reply_template', '"您好！感谢您对我们服务的关注。我是 Tezbarakat 的客服，很高兴为您服务。请问有什么可以帮助您的？"', '私信回复模板')
 ON CONFLICT (key) DO NOTHING;
 
 -- =====================================================

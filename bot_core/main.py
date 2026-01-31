@@ -5,7 +5,7 @@ Tezbarakat Telegram Bot - Bot 核心服务主入口
 import sys
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 # 添加项目根目录到路径
@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from loguru import logger
 import uvicorn
+import pytz
 
 from config import bot_settings
 from services.telegram_client import client_manager
@@ -41,9 +42,35 @@ class BotState:
     running: bool = False
     start_time: Optional[datetime] = None
     health_check_task: Optional[asyncio.Task] = None
+    reset_task: Optional[asyncio.Task] = None
 
 
 bot_state = BotState()
+
+
+async def load_config_from_db():
+    """从数据库加载配置"""
+    try:
+        configs = await db_service.get_all_configs()
+        
+        # 更新 bot_settings
+        for key, value in configs.items():
+            if hasattr(bot_settings, key):
+                # 处理 JSONB 值
+                if isinstance(value, str):
+                    try:
+                        import json
+                        value = json.loads(value)
+                    except:
+                        pass
+                setattr(bot_settings, key, value)
+        
+        # 重新加载 Dify 服务配置
+        dify_service.reload_config()
+        
+        logger.info("已从数据库加载配置")
+    except Exception as e:
+        logger.error(f"从数据库加载配置失败: {e}")
 
 
 async def start_bot():
@@ -55,6 +82,9 @@ async def start_bot():
     logger.info("正在启动 Bot 核心服务...")
     
     try:
+        # 从数据库加载配置
+        await load_config_from_db()
+        
         # 初始化消息处理器
         await message_handler.initialize()
         
@@ -62,21 +92,30 @@ async def start_bot():
         accounts = await db_service.get_all_accounts()
         
         for account in accounts:
-            if account.get('status') in ['active', 'logging_in']:
+            # 使用 ORM 对象属性访问
+            status = account.status if hasattr(account, 'status') else account.get('status', '')
+            phone_number = account.phone_number if hasattr(account, 'phone_number') else account.get('phone_number', '')
+            session_name = account.session_name if hasattr(account, 'session_name') else account.get('session_name', '')
+            
+            if status in ['active', 'logging_in']:
                 try:
                     success = await client_manager.connect_existing(
-                        phone=account['phone_number'],
-                        session_name=account['session_name']
+                        phone=phone_number,
+                        session_name=session_name
                     )
                     if success:
-                        logger.info(f"账号 {account['phone_number']} 连接成功")
+                        logger.info(f"账号 {phone_number} 连接成功")
+                        
+                        # 获取并记录账号的用户 ID
+                        user_id = await client_manager.get_user_id(phone_number)
+                        if user_id:
+                            message_handler.add_our_user_id(user_id)
+                            logger.debug(f"已记录账号 {phone_number} 的用户 ID: {user_id}")
                     else:
-                        logger.warning(f"账号 {account['phone_number']} 连接失败")
-                        await db_service.update_account_status(
-                            account['phone_number'], 'limited'
-                        )
+                        logger.warning(f"账号 {phone_number} 连接失败")
+                        await db_service.update_account_status(phone_number, 'limited')
                 except Exception as e:
-                    logger.error(f"连接账号 {account['phone_number']} 时出错: {e}")
+                    logger.error(f"连接账号 {phone_number} 时出错: {e}")
         
         # 设置主监听账号（第一个活跃账号）
         active_phones = client_manager.active_phones
@@ -85,6 +124,9 @@ async def start_bot():
         
         # 启动健康检查任务
         bot_state.health_check_task = asyncio.create_task(health_check_loop())
+        
+        # 启动定时重置任务
+        bot_state.reset_task = asyncio.create_task(reset_counters_loop())
         
         bot_state.running = True
         bot_state.start_time = datetime.now()
@@ -110,6 +152,14 @@ async def stop_bot():
             bot_state.health_check_task.cancel()
             try:
                 await bot_state.health_check_task
+            except asyncio.CancelledError:
+                pass
+        
+        # 取消重置任务
+        if bot_state.reset_task:
+            bot_state.reset_task.cancel()
+            try:
+                await bot_state.reset_task
             except asyncio.CancelledError:
                 pass
         
@@ -158,6 +208,44 @@ async def health_check_loop():
             break
         except Exception as e:
             logger.error(f"健康检查出错: {e}")
+
+
+async def reset_counters_loop():
+    """定时重置计数器循环"""
+    tz = pytz.timezone(bot_settings.timezone)
+    
+    while True:
+        try:
+            now = datetime.now(tz)
+            
+            # 计算到下一个整点的秒数
+            next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            sleep_seconds = (next_hour - now).total_seconds()
+            
+            await asyncio.sleep(sleep_seconds)
+            
+            if not bot_state.running:
+                break
+            
+            current_hour = datetime.now(tz).hour
+            
+            # 每小时重置群组回复计数
+            logger.info("重置群组每小时回复计数...")
+            await db_service.reset_hourly_group_counts()
+            
+            # 每天凌晨重置账号每日消息计数
+            if current_hour == 0:
+                logger.info("重置账号每日消息计数...")
+                await db_service.reset_daily_account_counts()
+                
+                # 恢复 cooling_down 状态的账号
+                logger.info("恢复冷却中的账号...")
+                await db_service.recover_cooling_accounts()
+            
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"重置计数器出错: {e}")
 
 
 @asynccontextmanager
@@ -285,6 +373,13 @@ async def complete_login(request: LoginCompleteRequest):
             code=request.code,
             password=request.password
         )
+        
+        # 如果登录成功，记录用户 ID
+        if result.get('success'):
+            user_id = await client_manager.get_user_id(request.phone)
+            if user_id:
+                message_handler.add_our_user_id(user_id)
+        
         return result
     except Exception as e:
         logger.error(f"完成登录失败: {e}")
@@ -304,6 +399,10 @@ async def reconnect_account(request: ReconnectRequest):
     try:
         success = await client_manager.connect_existing(request.phone, request.session_name)
         if success:
+            # 记录用户 ID
+            user_id = await client_manager.get_user_id(request.phone)
+            if user_id:
+                message_handler.add_our_user_id(user_id)
             return {"status": "connected"}
         else:
             raise HTTPException(status_code=400, detail="连接失败")
@@ -368,8 +467,7 @@ async def reload_keywords():
 @app.post("/config/reload")
 async def reload_config():
     """重新加载配置"""
-    # 重新加载 Dify 配置
-    dify_service.reload_config()
+    await load_config_from_db()
     return {"status": "reloaded"}
 
 

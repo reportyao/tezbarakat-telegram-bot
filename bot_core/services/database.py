@@ -2,13 +2,14 @@
 Tezbarakat Telegram Bot - Bot 核心数据库服务
 """
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from sqlalchemy import create_engine, select, update, and_, or_, func
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from loguru import logger
 from contextlib import asynccontextmanager
+import pytz
 
 from ..config import bot_settings
 
@@ -41,11 +42,21 @@ async_session_maker = async_sessionmaker(
 )
 
 
+def get_current_time():
+    """获取当前时间（带时区）"""
+    return datetime.now(pytz.timezone(bot_settings.timezone))
+
+
+def get_utc_now():
+    """获取当前 UTC 时间"""
+    return datetime.now(timezone.utc)
+
+
 class BotDatabaseService:
     """Bot 核心数据库服务类"""
     
     def __init__(self):
-        pass
+        self._tz = pytz.timezone(bot_settings.timezone)
     
     @asynccontextmanager
     async def get_session(self):
@@ -85,12 +96,14 @@ class BotDatabaseService:
     async def get_available_account_for_sending(self) -> Optional[Account]:
         """获取一个可用于发送消息的账号"""
         async with self.get_session() as session:
+            today = date.today()
+            
             # 获取所有活跃账号
             result = await session.execute(
                 select(Account)
                 .where(Account.status == 'active')
                 .where(or_(
-                    Account.daily_reset_date < date.today(),
+                    Account.daily_reset_date < today,
                     Account.daily_message_count < bot_settings.daily_private_message_limit
                 ))
                 .order_by(Account.last_used_at.asc().nullsfirst())
@@ -100,12 +113,18 @@ class BotDatabaseService:
             
             # 检查私信间隔
             min_interval = timedelta(minutes=bot_settings.private_message_interval_minutes)
-            now = datetime.now()
+            now = get_utc_now()
             
             for account in accounts:
                 if account.last_used_at is None:
                     return account
-                if now - account.last_used_at >= min_interval:
+                
+                # 处理时区问题
+                last_used = account.last_used_at
+                if last_used.tzinfo is None:
+                    last_used = last_used.replace(tzinfo=timezone.utc)
+                
+                if now - last_used >= min_interval:
                     return account
             
             return None
@@ -116,7 +135,7 @@ class BotDatabaseService:
             await session.execute(
                 update(Account)
                 .where(Account.phone_number == phone)
-                .values(status=status, updated_at=datetime.now())
+                .values(status=status, updated_at=get_utc_now())
             )
     
     async def update_account_last_used(self, account_id: int):
@@ -129,14 +148,38 @@ class BotDatabaseService:
             account = result.scalar_one_or_none()
             
             if account:
+                today = date.today()
+                
                 # 检查是否需要重置每日计数
-                if account.daily_reset_date is None or account.daily_reset_date < date.today():
+                if account.daily_reset_date is None or account.daily_reset_date < today:
                     account.daily_message_count = 1
-                    account.daily_reset_date = date.today()
+                    account.daily_reset_date = today
                 else:
                     account.daily_message_count += 1
                 
-                account.last_used_at = datetime.now()
+                account.last_used_at = get_utc_now()
+    
+    async def reset_daily_account_counts(self):
+        """重置所有账号的每日消息计数"""
+        async with self.get_session() as session:
+            await session.execute(
+                update(Account)
+                .values(
+                    daily_message_count=0,
+                    daily_reset_date=date.today()
+                )
+            )
+            logger.info("已重置所有账号的每日消息计数")
+    
+    async def recover_cooling_accounts(self):
+        """恢复冷却中的账号"""
+        async with self.get_session() as session:
+            await session.execute(
+                update(Account)
+                .where(Account.status == 'cooling_down')
+                .values(status='active')
+            )
+            logger.info("已恢复所有冷却中的账号")
     
     # =====================================================
     # 群组操作
@@ -166,9 +209,15 @@ class BotDatabaseService:
             if not group:
                 return False
             
+            now = get_utc_now()
+            
+            # 处理时区问题
+            reset_time = group.hourly_reset_time
+            if reset_time and reset_time.tzinfo is None:
+                reset_time = reset_time.replace(tzinfo=timezone.utc)
+            
             # 检查是否需要重置计数
-            now = datetime.now()
-            if group.hourly_reset_time is None or group.hourly_reset_time < now - timedelta(hours=1):
+            if reset_time is None or reset_time < now - timedelta(hours=1):
                 group.hourly_reply_count = 0
                 group.hourly_reset_time = now
             
@@ -182,6 +231,18 @@ class BotDatabaseService:
                 .where(Group.group_id == group_id)
                 .values(hourly_reply_count=Group.hourly_reply_count + 1)
             )
+    
+    async def reset_hourly_group_counts(self):
+        """重置所有群组的每小时回复计数"""
+        async with self.get_session() as session:
+            await session.execute(
+                update(Group)
+                .values(
+                    hourly_reply_count=0,
+                    hourly_reset_time=get_utc_now()
+                )
+            )
+            logger.info("已重置所有群组的每小时回复计数")
     
     # =====================================================
     # 关键词操作
@@ -198,11 +259,22 @@ class BotDatabaseService:
     async def increment_keyword_hit(self, keyword: str):
         """增加关键词命中计数"""
         async with self.get_session() as session:
-            await session.execute(
-                update(Keyword)
-                .where(Keyword.keyword == keyword.lower())
-                .values(hit_count=Keyword.hit_count + 1)
+            # 先尝试精确匹配
+            result = await session.execute(
+                select(Keyword).where(Keyword.keyword == keyword)
             )
+            kw = result.scalar_one_or_none()
+            
+            if kw:
+                kw.hit_count += 1
+            else:
+                # 尝试不区分大小写匹配
+                result = await session.execute(
+                    select(Keyword).where(func.lower(Keyword.keyword) == keyword.lower())
+                )
+                kw = result.scalar_one_or_none()
+                if kw:
+                    kw.hit_count += 1
     
     # =====================================================
     # 用户操作
@@ -256,8 +328,13 @@ class BotDatabaseService:
             if not user or not user.last_private_message_time:
                 return False
             
-            cooldown_end = user.last_private_message_time + timedelta(days=bot_settings.user_cooldown_days)
-            return datetime.now() < cooldown_end
+            # 处理时区问题
+            last_pm_time = user.last_private_message_time
+            if last_pm_time.tzinfo is None:
+                last_pm_time = last_pm_time.replace(tzinfo=timezone.utc)
+            
+            cooldown_end = last_pm_time + timedelta(days=bot_settings.user_cooldown_days)
+            return get_utc_now() < cooldown_end
     
     async def update_user_last_pm_time(self, user_id: int):
         """更新用户最后私信时间"""
@@ -266,7 +343,7 @@ class BotDatabaseService:
                 update(User)
                 .where(User.user_id == user_id)
                 .values(
-                    last_private_message_time=datetime.now(),
+                    last_private_message_time=get_utc_now(),
                     total_messages_received=User.total_messages_received + 1
                 )
             )
@@ -289,7 +366,7 @@ class BotDatabaseService:
         """保存消息记录"""
         async with self.get_session() as session:
             message = Message(
-                timestamp=datetime.now(),
+                timestamp=get_utc_now(),
                 group_id=group_id,
                 user_id=user_id,
                 message_id=message_id,
@@ -329,7 +406,7 @@ class BotDatabaseService:
         """保存回复记录"""
         async with self.get_session() as session:
             reply = Reply(
-                timestamp=datetime.now(),
+                timestamp=get_utc_now(),
                 account_id=account_id,
                 user_id=user_id,
                 group_id=group_id,
@@ -390,7 +467,7 @@ class BotDatabaseService:
         async with self.get_session() as session:
             values = {
                 "message_count": Conversation.message_count + 1,
-                "last_message_at": datetime.now()
+                "last_message_at": get_utc_now()
             }
             if dify_conversation_id:
                 values["dify_conversation_id"] = dify_conversation_id
@@ -452,13 +529,14 @@ class BotDatabaseService:
     
     async def _get_or_create_today_stats_internal(self, session: AsyncSession) -> Statistic:
         """获取或创建今日统计（内部方法，需要传入session）"""
+        today = date.today()
         result = await session.execute(
-            select(Statistic).where(Statistic.date == date.today())
+            select(Statistic).where(Statistic.date == today)
         )
         stats = result.scalar_one_or_none()
         
         if not stats:
-            stats = Statistic(date=date.today())
+            stats = Statistic(date=today)
             session.add(stats)
             await session.flush()
         

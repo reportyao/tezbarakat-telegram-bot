@@ -765,6 +765,7 @@ class DatabaseService:
             'today_new_users': today_stats.new_users_count,
             'total_accounts': account_stats['total'],
             'active_accounts': account_stats['active'],
+            'cooling_down_accounts': account_stats.get('cooling_down', 0),
             'limited_accounts': account_stats['limited'],
             'banned_accounts': account_stats['banned'],
             'total_groups': group_stats.total or 0,

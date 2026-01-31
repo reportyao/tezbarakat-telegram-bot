@@ -33,6 +33,20 @@ class BotManager:
         """检查 Bot 是否正在运行"""
         return self._running
     
+    def get_uptime(self) -> Optional[int]:
+        """获取运行时间（秒）"""
+        if self._start_time and self._running:
+            return int((datetime.now() - self._start_time).total_seconds())
+        return None
+    
+    def get_connected_accounts(self) -> int:
+        """获取已连接账号数"""
+        return self._connected_accounts
+    
+    def get_monitored_groups(self) -> int:
+        """获取监听群组数"""
+        return self._monitored_groups
+    
     def get_status(self) -> Dict[str, Any]:
         """获取 Bot 状态"""
         uptime = None

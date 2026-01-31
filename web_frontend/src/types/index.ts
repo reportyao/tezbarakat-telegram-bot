@@ -121,6 +121,7 @@ export interface DashboardData {
   account_status: {
     total: number;
     active: number;
+    cooling_down: number;
     limited: number;
     banned: number;
   };
