@@ -50,6 +50,10 @@ class TelegramClientManager:
         """创建新的 Telegram 客户端"""
         session_path = self._get_session_path(session_name)
         
+        # 检查 API 配置
+        if not bot_settings.telegram_api_id or not bot_settings.telegram_api_hash:
+            raise ValueError("Telegram API ID 和 API Hash 未配置")
+        
         client = TelegramClient(
             session_path,
             bot_settings.telegram_api_id,
@@ -68,6 +72,10 @@ class TelegramClientManager:
     
     async def start_login(self, phone: str, session_name: str) -> dict:
         """开始登录流程"""
+        # 如果客户端已存在，先断开
+        if phone in self._clients:
+            await self.disconnect(phone)
+        
         client = await self.create_client(phone, session_name)
         
         try:
@@ -75,8 +83,10 @@ class TelegramClientManager:
             
             if await client.is_user_authorized():
                 self._client_status[phone] = 'active'
+                # 注册消息处理器
+                await self._register_handlers(client, phone)
                 logger.info(f"账号 {phone} 已授权，无需重新登录")
-                return {"status": "authorized", "phone": phone}
+                return {"authorized": True, "phone": phone}
             
             # 发送验证码
             sent_code = await client.send_code_request(phone)
@@ -90,7 +100,7 @@ class TelegramClientManager:
             
             logger.info(f"验证码已发送到 {phone}")
             return {
-                "status": "code_sent",
+                "authorized": False,
                 "phone": phone,
                 "phone_code_hash": sent_code.phone_code_hash
             }
@@ -98,7 +108,8 @@ class TelegramClientManager:
         except FloodWaitError as e:
             logger.error(f"发送验证码被限制，需等待 {e.seconds} 秒")
             return {
-                "status": "flood_wait",
+                "authorized": False,
+                "error": "flood_wait",
                 "phone": phone,
                 "wait_seconds": e.seconds
             }
@@ -111,7 +122,7 @@ class TelegramClientManager:
         phone: str,
         code: Optional[str] = None,
         password: Optional[str] = None
-    ) -> bool:
+    ) -> dict:
         """完成登录流程"""
         if phone not in self._clients:
             raise ValueError(f"未找到账号 {phone} 的客户端")
@@ -130,29 +141,34 @@ class TelegramClientManager:
             elif password:
                 # 使用两步验证密码
                 await client.sign_in(password=password)
+            else:
+                return {"success": False, "message": "请提供验证码或密码"}
             
             self._client_status[phone] = 'active'
             self._login_states.pop(phone, None)
+            
+            # 注册消息处理器
+            await self._register_handlers(client, phone)
             
             # 获取用户信息
             me = await client.get_me()
             logger.info(f"账号 {phone} 登录成功: {me.first_name}")
             
-            return True
+            return {"success": True, "message": "登录成功"}
             
         except SessionPasswordNeededError:
             logger.info(f"账号 {phone} 需要两步验证密码")
             self._client_status[phone] = 'need_password'
-            return False
+            return {"success": False, "need_password": True, "message": "需要两步验证密码"}
         except PhoneCodeInvalidError:
             logger.error(f"账号 {phone} 验证码无效")
-            return False
+            return {"success": False, "message": "验证码无效"}
         except PhoneCodeExpiredError:
             logger.error(f"账号 {phone} 验证码已过期")
-            return False
+            return {"success": False, "message": "验证码已过期，请重新获取"}
         except Exception as e:
             logger.error(f"完成登录失败: {e}")
-            raise
+            return {"success": False, "message": str(e)}
     
     async def connect_existing(self, phone: str, session_name: str) -> bool:
         """连接已存在的账号"""
@@ -202,6 +218,7 @@ class TelegramClientManager:
             finally:
                 del self._clients[phone]
                 self._client_status.pop(phone, None)
+                self._login_states.pop(phone, None)
     
     async def disconnect_all(self):
         """断开所有连接"""
@@ -401,6 +418,19 @@ class TelegramClientManager:
             return None
         except Exception as e:
             logger.error(f"获取实体信息失败: {e}")
+            return None
+    
+    async def get_user_id(self, phone: str) -> Optional[int]:
+        """获取账号的用户 ID"""
+        client = self.get_client(phone)
+        if not client:
+            return None
+        
+        try:
+            me = await client.get_me()
+            return me.id if me else None
+        except Exception as e:
+            logger.error(f"获取用户 ID 失败: {e}")
             return None
     
     @property

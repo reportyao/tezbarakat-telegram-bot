@@ -21,7 +21,7 @@ from config import settings
 
 # 创建异步引擎
 engine = create_async_engine(
-    settings.database_url,
+    settings.db_url,
     echo=settings.debug,
     pool_size=10,
     max_overflow=20,

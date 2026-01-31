@@ -62,21 +62,21 @@ async def start_bot():
         accounts = await db_service.get_all_accounts()
         
         for account in accounts:
-            if account.status in ['active', 'logging_in']:
+            if account.get('status') in ['active', 'logging_in']:
                 try:
                     success = await client_manager.connect_existing(
-                        phone=account.phone_number,
-                        session_name=account.session_name
+                        phone=account['phone_number'],
+                        session_name=account['session_name']
                     )
                     if success:
-                        logger.info(f"账号 {account.phone_number} 连接成功")
+                        logger.info(f"账号 {account['phone_number']} 连接成功")
                     else:
-                        logger.warning(f"账号 {account.phone_number} 连接失败")
+                        logger.warning(f"账号 {account['phone_number']} 连接失败")
                         await db_service.update_account_status(
-                            account.phone_number, 'limited'
+                            account['phone_number'], 'limited'
                         )
                 except Exception as e:
-                    logger.error(f"连接账号 {account.phone_number} 时出错: {e}")
+                    logger.error(f"连接账号 {account['phone_number']} 时出错: {e}")
         
         # 设置主监听账号（第一个活跃账号）
         active_phones = client_manager.active_phones
@@ -272,6 +272,7 @@ async def start_login(request: LoginStartRequest):
         result = await client_manager.start_login(request.phone, request.session_name)
         return result
     except Exception as e:
+        logger.error(f"开始登录失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -279,16 +280,14 @@ async def start_login(request: LoginStartRequest):
 async def complete_login(request: LoginCompleteRequest):
     """完成登录"""
     try:
-        success = await client_manager.complete_login(
+        result = await client_manager.complete_login(
             request.phone,
             code=request.code,
             password=request.password
         )
-        if success:
-            return {"status": "success"}
-        else:
-            raise HTTPException(status_code=400, detail="登录失败")
+        return result
     except Exception as e:
+        logger.error(f"完成登录失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

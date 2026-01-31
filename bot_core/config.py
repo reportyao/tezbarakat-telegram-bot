@@ -13,8 +13,8 @@ class BotSettings(BaseSettings):
     """Bot 核心服务配置类"""
     
     # Telegram API 配置
-    telegram_api_id: str = Field(
-        default="",
+    telegram_api_id: int = Field(
+        default=0,
         description="Telegram API ID"
     )
     telegram_api_hash: str = Field(

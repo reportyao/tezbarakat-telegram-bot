@@ -5,7 +5,7 @@ Tezbarakat Telegram Bot - 数据库服务层
 
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
-from sqlalchemy import select, update, delete, func, and_, or_, desc
+from sqlalchemy import select, update, delete, func, and_, or_, desc, Integer
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 

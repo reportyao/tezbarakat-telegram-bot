@@ -27,7 +27,7 @@ class BotManager:
         self._config: Dict[str, Any] = {}
         
         # Bot 核心服务的内部 API 地址
-        self._bot_api_url = os.environ.get('BOT_CORE_API_URL', 'http://localhost:8001')
+        self._bot_api_url = os.environ.get('BOT_CORE_URL', 'http://bot_core:8001')
     
     def is_running(self) -> bool:
         """检查 Bot 是否正在运行"""
@@ -99,7 +99,7 @@ class BotManager:
         await asyncio.sleep(2)
         await self.start()
     
-    async def start_login(self, phone: str, session_name: str):
+    async def start_login(self, phone: str, session_name: str) -> Dict[str, Any]:
         """开始账号登录流程"""
         try:
             async with httpx.AsyncClient() as client:
@@ -111,19 +111,23 @@ class BotManager:
                     },
                     timeout=60.0
                 )
+                data = response.json()
                 if response.status_code != 200:
-                    raise Exception(response.json().get('detail', '未知错误'))
-                return response.json()
+                    raise Exception(data.get('detail', '未知错误'))
+                return data
         except httpx.ConnectError:
             logger.warning("Bot 核心服务未运行，登录请求已记录")
-            return {"status": "pending"}
+            return {"authorized": False, "error": "service_unavailable"}
+        except Exception as e:
+            logger.error(f"开始登录失败: {e}")
+            raise
     
     async def complete_login(
         self,
         phone: str,
         code: Optional[str] = None,
         password: Optional[str] = None
-    ) -> bool:
+    ) -> Dict[str, Any]:
         """完成账号登录"""
         try:
             async with httpx.AsyncClient() as client:
@@ -136,10 +140,10 @@ class BotManager:
                     },
                     timeout=60.0
                 )
-                return response.status_code == 200
+                return response.json()
         except Exception as e:
             logger.error(f"完成登录失败: {e}")
-            return False
+            return {"success": False, "message": str(e)}
     
     async def remove_account(self, phone: str):
         """移除账号"""

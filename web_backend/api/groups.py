@@ -57,6 +57,45 @@ def parse_group_identifier(identifier: str) -> tuple:
     return None, identifier, None
 
 
+@router.get("/resolve")
+async def resolve_group(
+    username: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """解析群组用户名获取信息"""
+    from ..utils.bot_manager import bot_manager
+    
+    # 清理用户名
+    username = username.strip()
+    if username.startswith('@'):
+        username = username[1:]
+    if 't.me/' in username:
+        match = re.search(r't\.me/(?:\+)?([a-zA-Z0-9_]+)', username)
+        if match:
+            username = match.group(1)
+    
+    try:
+        group_info = await bot_manager.resolve_group(username)
+        if group_info:
+            return {
+                "group_id": group_info['id'],
+                "title": group_info.get('title', ''),
+                "username": group_info.get('username')
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="无法找到该群组，请确保机器人已加入该群组"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"解析群组失败: {str(e)}"
+        )
+
+
 @router.get("", response_model=GroupListResponse)
 async def get_groups(
     active_only: bool = False,
@@ -83,7 +122,7 @@ async def create_group(
     service = DatabaseService(db)
     
     group_id = group.group_id
-    group_name = None
+    group_name = group.group_name
     group_username = group.group_username
     
     # 如果提供了用户名/链接，尝试解析
@@ -113,6 +152,8 @@ async def create_group(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="无法找到该群组，请确保机器人已加入该群组"
                 )
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

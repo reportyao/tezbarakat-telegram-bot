@@ -141,7 +141,7 @@ export const groupsApi = {
     return response.data;
   },
 
-  create: async (data: { group_id: number; group_name: string; username?: string }): Promise<Group> => {
+  create: async (data: { group_id: number; group_name: string; group_username?: string }): Promise<Group> => {
     const response = await api.post<Group>('/groups', data);
     return response.data;
   },

@@ -21,7 +21,7 @@ export interface Group {
   id: number;
   group_id: number;
   group_name: string;
-  username?: string;
+  group_username?: string;
   is_active: boolean;
   member_count?: number;
   hourly_reply_count: number;

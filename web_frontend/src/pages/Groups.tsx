@@ -85,7 +85,7 @@ export default function Groups() {
     createMutation.mutate({
       group_id: resolvedGroup.group_id,
       group_name: resolvedGroup.title,
-      username: resolvedGroup.username,
+      group_username: resolvedGroup.username,
     });
   };
 
@@ -130,14 +130,14 @@ export default function Groups() {
                   <TableRow key={group.id}>
                     <TableCell className="font-medium">{group.group_name}</TableCell>
                     <TableCell>
-                      {group.username ? (
+                      {group.group_username ? (
                         <a
-                          href={`https://t.me/${group.username}`}
+                          href={`https://t.me/${group.group_username}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-primary-600 hover:underline flex items-center"
                         >
-                          @{group.username}
+                          @{group.group_username}
                           <ExternalLink className="w-3 h-3 ml-1" />
                         </a>
                       ) : (

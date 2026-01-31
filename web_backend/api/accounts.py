@@ -61,7 +61,7 @@ async def create_account(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """创建新账号（第一步：发送验证码）"""
+    """创建新账号"""
     service = DatabaseService(db)
     
     # 验证手机号格式
@@ -75,38 +75,24 @@ async def create_account(
             detail="该手机号已存在"
         )
     
-    # 生成 session 名称
-    session_name = f"session_{phone.replace('+', '')}"
+    # 使用提供的 session 名称或自动生成
+    session_name = account.session_name if account.session_name else f"session_{phone.replace('+', '')}"
     
     # 创建账号记录
     new_account = await service.create_account(phone, session_name)
     
-    # 触发 Bot 核心服务开始登录流程
-    from ..utils.bot_manager import bot_manager
-    try:
-        await bot_manager.start_login(phone, session_name)
-    except Exception as e:
-        # 如果启动登录失败，删除账号记录
-        await service.delete_account(new_account.id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"启动登录流程失败: {str(e)}"
-        )
-    
     return AccountResponse.model_validate(new_account)
 
 
-@router.post("/login", response_model=BaseResponse)
-async def complete_login(
-    login_data: AccountLogin,
+@router.post("/{account_id}/login/start")
+async def start_login(
+    account_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    """完成账号登录（第二步：提交验证码/密码）"""
+    """开始登录流程（发送验证码）"""
     service = DatabaseService(db)
-    
-    phone = validate_phone_number(login_data.phone_number)
-    account = await service.get_account_by_phone(phone)
+    account = await service.get_account_by_id(account_id)
     
     if not account:
         raise HTTPException(
@@ -114,26 +100,71 @@ async def complete_login(
             detail="账号不存在"
         )
     
-    if account.status != 'logging_in':
+    # 调用 Bot 核心服务开始登录
+    from ..utils.bot_manager import bot_manager
+    try:
+        result = await bot_manager.start_login(account.phone_number, account.session_name)
+        
+        if result.get('authorized'):
+            # 已经登录
+            await service.update_account_status(account_id, 'active')
+            return {"status": "authorized", "message": "账号已登录"}
+        elif result.get('phone_code_hash'):
+            # 需要验证码
+            await service.update_account_status(account_id, 'logging_in')
+            return {
+                "status": "need_code",
+                "phone_code_hash": result.get('phone_code_hash'),
+                "message": "验证码已发送"
+            }
+        else:
+            return {"status": "error", "message": "启动登录失败"}
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"账号状态不正确: {account.status}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"启动登录流程失败: {str(e)}"
+        )
+
+
+@router.post("/{account_id}/login/complete", response_model=BaseResponse)
+async def complete_login(
+    account_id: int,
+    login_data: AccountLogin,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """完成登录（提交验证码/密码）"""
+    service = DatabaseService(db)
+    account = await service.get_account_by_id(account_id)
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="账号不存在"
         )
     
     # 调用 Bot 核心服务完成登录
     from ..utils.bot_manager import bot_manager
     try:
-        success = await bot_manager.complete_login(
-            phone,
+        result = await bot_manager.complete_login(
+            account.phone_number,
             code=login_data.code,
             password=login_data.password
         )
         
-        if success:
-            await service.update_account_status(account.id, 'active')
+        if result.get('success'):
+            await service.update_account_status(account_id, 'active')
             return BaseResponse(success=True, message="登录成功")
+        elif result.get('need_password'):
+            await service.update_account_status(account_id, 'need_password')
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="需要两步验证密码"
+            )
         else:
-            return BaseResponse(success=False, message="登录失败，请检查验证码或密码")
+            return BaseResponse(success=False, message=result.get('message', '登录失败'))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -158,6 +189,35 @@ async def get_account(
         )
     
     return AccountResponse.model_validate(account)
+
+
+@router.get("/{account_id}/health")
+async def check_account_health(
+    account_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    """检查账号健康状态"""
+    service = DatabaseService(db)
+    account = await service.get_account_by_id(account_id)
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="账号不存在"
+        )
+    
+    from ..utils.bot_manager import bot_manager
+    try:
+        is_healthy, message = await bot_manager.check_account_health(account.phone_number)
+        
+        if not is_healthy and account.status == 'active':
+            # 更新状态
+            await service.update_account_status(account_id, 'limited')
+        
+        return {"healthy": is_healthy, "message": message}
+    except Exception as e:
+        return {"healthy": False, "message": f"检查失败: {str(e)}"}
 
 
 @router.put("/{account_id}/status", response_model=AccountResponse)
@@ -242,32 +302,3 @@ async def reconnect_account(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"重新连接出错: {str(e)}"
         )
-
-
-@router.post("/{account_id}/check", response_model=BaseResponse)
-async def check_account_health(
-    account_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """检查账号健康状态"""
-    service = DatabaseService(db)
-    account = await service.get_account_by_id(account_id)
-    
-    if not account:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="账号不存在"
-        )
-    
-    from ..utils.bot_manager import bot_manager
-    try:
-        is_healthy, message = await bot_manager.check_account_health(account.phone_number)
-        
-        if not is_healthy and account.status == 'active':
-            # 更新状态
-            await service.update_account_status(account_id, 'limited')
-        
-        return BaseResponse(success=is_healthy, message=message)
-    except Exception as e:
-        return BaseResponse(success=False, message=f"检查失败: {str(e)}")

@@ -39,14 +39,17 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
+    # 使用 jwt_secret 或 secret_key
+    secret = getattr(settings, 'jwt_secret', None) or settings.secret_key
+    encoded_jwt = jwt.encode(to_encode, secret, algorithm="HS256")
     return encoded_jwt
 
 
 def decode_token(token: str) -> Optional[dict]:
     """解码令牌"""
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+        secret = getattr(settings, 'jwt_secret', None) or settings.secret_key
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
         return payload
     except JWTError:
         return None

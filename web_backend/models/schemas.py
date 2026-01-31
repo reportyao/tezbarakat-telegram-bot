@@ -38,7 +38,7 @@ class AccountBase(BaseModel):
 
 class AccountCreate(AccountBase):
     """创建账号请求"""
-    pass
+    session_name: Optional[str] = Field(None, max_length=50, description="Session 名称")
 
 
 class AccountLogin(BaseModel):
@@ -86,6 +86,7 @@ class GroupBase(BaseModel):
 class GroupCreate(BaseModel):
     """创建群组请求"""
     group_id: Optional[int] = Field(None, description="Telegram 群组 ID")
+    group_name: Optional[str] = Field(None, description="群组名称")
     group_username: Optional[str] = Field(None, description="群组用户名或链接")
 
 

@@ -6,12 +6,18 @@ services:
     container_name: tezbarakat_db
     volumes:
       - postgres_data:/var/lib/postgresql/data/
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tezbarakat}
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-tezbarakat}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   web_backend:
@@ -20,12 +26,22 @@ services:
       dockerfile: web_backend/Dockerfile
     container_name: tezbarakat_backend
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
-      - ./web_backend:/app
       - ./sessions:/app/sessions  # 挂载 session 文件目录
-    env_file:
-      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-tezbarakat}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-tezbarakat}
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - BOT_CORE_URL=http://bot_core:8001
+      - DEBUG=${DEBUG:-false}
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -36,13 +52,27 @@ services:
       dockerfile: bot_core/Dockerfile
     container_name: tezbarakat_bot_core
     depends_on:
-      - db
-      - web_backend
+      db:
+        condition: service_healthy
+      web_backend:
+        condition: service_started
     volumes:
-      - ./bot_core:/app
       - ./sessions:/app/sessions # 挂载 session 文件目录
-    env_file:
-      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-tezbarakat}
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-tezbarakat}
+      - POSTGRES_USER=${POSTGRES_USER:-user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - DIFY_API_URL=${DIFY_API_URL:-http://localhost/v1}
+      - DIFY_API_KEY=${DIFY_API_KEY}
+      - DIFY_WORKFLOW_ID=${DIFY_WORKFLOW_ID}
+      - DIFY_KNOWLEDGE_WORKFLOW_ID=${DIFY_KNOWLEDGE_WORKFLOW_ID}
+      - DIFY_CONFIDENCE_THRESHOLD=${DIFY_CONFIDENCE_THRESHOLD:-0.7}
+      - DEBUG=${DEBUG:-false}
     restart: unless-stopped
 
   web_frontend:

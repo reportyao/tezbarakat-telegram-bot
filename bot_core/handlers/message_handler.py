@@ -27,6 +27,7 @@ class MessageHandler:
         self._monitored_groups: Set[int] = set()
         self._timezone = pytz.timezone(bot_settings.timezone)
         self._running = False
+        self._our_user_ids: Set[int] = set()  # 存储我们账号的用户ID
     
     async def initialize(self):
         """初始化处理器"""
@@ -45,22 +46,36 @@ class MessageHandler:
     
     async def reload_keywords(self):
         """重新加载关键词"""
-        self._keywords = await db_service.get_active_keywords()
-        logger.info(f"已加载 {len(self._keywords)} 个关键词")
+        try:
+            self._keywords = await db_service.get_active_keywords()
+            logger.info(f"已加载 {len(self._keywords)} 个关键词")
+        except Exception as e:
+            logger.error(f"加载关键词失败: {e}")
+            self._keywords = []
     
     async def reload_groups(self):
         """重新加载监听群组"""
-        group_ids = await db_service.get_active_group_ids()
-        self._monitored_groups = set(group_ids)
-        logger.info(f"已加载 {len(self._monitored_groups)} 个监听群组")
+        try:
+            group_ids = await db_service.get_active_group_ids()
+            self._monitored_groups = set(group_ids)
+            logger.info(f"已加载 {len(self._monitored_groups)} 个监听群组")
+        except Exception as e:
+            logger.error(f"加载群组失败: {e}")
+            self._monitored_groups = set()
     
     def add_group(self, group_id: int):
         """添加监听群组"""
         self._monitored_groups.add(group_id)
+        logger.info(f"添加监听群组: {group_id}")
     
     def remove_group(self, group_id: int):
         """移除监听群组"""
         self._monitored_groups.discard(group_id)
+        logger.info(f"移除监听群组: {group_id}")
+    
+    def add_our_user_id(self, user_id: int):
+        """添加我们账号的用户ID"""
+        self._our_user_ids.add(user_id)
     
     def is_active_hours(self) -> bool:
         """检查是否在活跃时段"""
@@ -116,8 +131,12 @@ class MessageHandler:
             last_name = sender.last_name
             
             # 忽略机器人自己的消息
-            active_phones = client_manager.active_phones
-            # 这里简化处理，实际应该检查发送者是否是我们的账号
+            if user_id in self._our_user_ids:
+                return
+            
+            # 忽略机器人账号
+            if sender.bot:
+                return
             
             logger.debug(f"收到群消息: {chat_id} - {user_id} - {text[:50]}...")
             
@@ -216,23 +235,35 @@ class MessageHandler:
             user_id = sender.id
             username = sender.username
             
+            # 忽略机器人自己的消息
+            if user_id in self._our_user_ids:
+                return
+            
+            # 忽略机器人账号
+            if sender.bot:
+                return
+            
             logger.info(f"收到私信: {user_id} ({username}) - {text[:50]}...")
             
             # 获取或创建对话
             conversation = await db_service.get_or_create_conversation(user_id)
             
+            # 获取现有的 Dify 对话 ID（可能为 None）
+            existing_conversation_id = getattr(conversation, 'dify_conversation_id', None)
+            
             # 调用 Dify 知识库对话
             reply_text, new_conversation_id = await dify_service.chat_with_knowledge(
                 message_text=text,
                 user_id=user_id,
-                conversation_id=conversation.dify_conversation_id
+                conversation_id=existing_conversation_id
             )
             
             # 更新对话记录
-            await db_service.update_conversation(
-                conversation_id=conversation.id,
-                dify_conversation_id=new_conversation_id
-            )
+            if new_conversation_id:
+                await db_service.update_conversation(
+                    conversation_id=conversation.id,
+                    dify_conversation_id=new_conversation_id
+                )
             
             # 发送回复
             if reply_text:
@@ -250,22 +281,35 @@ class MessageHandler:
                 )
                 
                 # 发送消息
-                await client_manager.send_message(
-                    phone=phone,
-                    chat_id=user_id,
-                    text=reply_text,
-                    typing_duration=typing_duration
-                )
-                
-                # 保存回复记录
-                await db_service.save_reply(
-                    user_id=user_id,
-                    reply_type='private',
-                    sent_text=reply_text,
-                    conversation_id=new_conversation_id
-                )
-                
-                logger.info(f"已回复私信: {user_id}")
+                try:
+                    await client_manager.send_message(
+                        phone=phone,
+                        chat_id=user_id,
+                        text=reply_text,
+                        typing_duration=typing_duration
+                    )
+                    
+                    # 保存回复记录
+                    await db_service.save_reply(
+                        user_id=user_id,
+                        reply_type='private',
+                        sent_text=reply_text,
+                        conversation_id=new_conversation_id,
+                        status='sent'
+                    )
+                    
+                    logger.info(f"已回复私信: {user_id}")
+                except Exception as e:
+                    logger.error(f"发送私信回复失败: {e}")
+                    # 保存失败记录
+                    await db_service.save_reply(
+                        user_id=user_id,
+                        reply_type='private',
+                        sent_text=reply_text,
+                        conversation_id=new_conversation_id,
+                        status='failed',
+                        error_message=str(e)
+                    )
                 
         except Exception as e:
             logger.error(f"处理私信时出错: {e}", exc_info=True)
@@ -329,7 +373,8 @@ class MessageHandler:
                                 reply_type='group',
                                 account_id=account.id,
                                 group_id=group_id,
-                                sent_text=full_reply
+                                sent_text=full_reply,
+                                status='sent'
                             )
                             
                             logger.info(f"已发送群内回复: {group_id} -> {user_id}")
@@ -346,10 +391,14 @@ class MessageHandler:
                                 status='failed',
                                 error_message=str(e)
                             )
+                    else:
+                        logger.warning("没有可用账号发送群内回复")
+                else:
+                    logger.debug(f"群组 {group_id} 已达到每小时回复上限")
             
             # 2. 私信回复
             if bot_settings.enable_private_message and private_reply_text:
-                # 额外延迟
+                # 额外延迟，避免立即私信
                 await asyncio.sleep(random.randint(30, 120))
                 
                 # 获取可用账号
@@ -378,7 +427,8 @@ class MessageHandler:
                             user_id=user_id,
                             reply_type='private',
                             account_id=account.id,
-                            sent_text=private_reply_text
+                            sent_text=private_reply_text,
+                            status='sent'
                         )
                         
                         logger.info(f"已发送私信: {user_id}")
@@ -403,6 +453,8 @@ class MessageHandler:
                             severity='warning',
                             account_id=account.id
                         )
+                else:
+                    logger.warning("没有可用账号发送私信")
                         
         except Exception as e:
             logger.error(f"执行回复策略时出错: {e}", exc_info=True)
