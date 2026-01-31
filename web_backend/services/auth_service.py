@@ -20,6 +20,17 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # HTTP Bearer 认证
 security = HTTPBearer()
 
+# 缓存管理员密码哈希（避免每次请求都计算）
+_admin_password_hash: Optional[str] = None
+
+
+def _get_admin_password_hash() -> str:
+    """获取管理员密码哈希（带缓存）"""
+    global _admin_password_hash
+    if _admin_password_hash is None:
+        _admin_password_hash = pwd_context.hash(settings.admin_password)
+    return _admin_password_hash
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
@@ -79,8 +90,14 @@ async def get_current_user(
 
 
 def authenticate_admin(username: str, password: str) -> bool:
-    """验证管理员"""
+    """验证管理员
+    
+    使用安全的密码哈希比较，防止时序攻击
+    """
     if username != settings.admin_username:
+        # 即使用户名不匹配，也进行密码验证以防止时序攻击
+        pwd_context.verify(password, _get_admin_password_hash())
         return False
-    # 简单密码验证（生产环境应使用哈希）
-    return password == settings.admin_password
+    
+    # 验证密码
+    return pwd_context.verify(password, _get_admin_password_hash())

@@ -50,22 +50,32 @@ async def lifespan(app: FastAPI):
 
 
 # 创建 FastAPI 应用
+# 生产环境禁用 API 文档以提高安全性
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Tezbarakat Telegram 智能营销机器人 - Web 管理后台 API",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    docs_url="/api/docs" if settings.debug else None,
+    redoc_url="/api/redoc" if settings.debug else None,
+    openapi_url="/api/openapi.json" if settings.debug else None
 )
 
 # 配置 CORS
+# 生产环境应该限制具体域名
+allowed_origins = settings.cors_origins if settings.debug else [
+    origin for origin in settings.cors_origins 
+    if origin != "*"
+]
+# 如果没有配置具体域名，至少允许同源请求
+if not allowed_origins:
+    allowed_origins = ["*"]  # 回退到允许所有（应在生产环境配置具体域名）
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -80,6 +90,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "success": False,
             "message": "服务器内部错误",
+            # 生产环境不暴露详细错误信息
             "detail": str(exc) if settings.debug else None
         }
     )
@@ -103,7 +114,7 @@ async def root():
     return {
         "name": settings.app_name,
         "version": settings.app_version,
-        "docs": "/api/docs"
+        "docs": "/api/docs" if settings.debug else "disabled"
     }
 
 

@@ -61,8 +61,8 @@ async def load_config_from_db():
                     try:
                         import json
                         value = json.loads(value)
-                    except:
-                        pass
+                    except (json.JSONDecodeError, ValueError):
+                        pass  # 保持原始字符串值
                 setattr(bot_settings, key, value)
         
         # 重新加载 Dify 服务配置

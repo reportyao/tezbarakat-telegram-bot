@@ -1,0 +1,96 @@
+# 开发环境 Docker Compose 配置
+# 使用方法: docker compose -f docker-compose.dev.yml up -d
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:14-alpine
+    container_name: tezbarakat_db_dev
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data/
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_DB: tezbarakat
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"  # 开发环境暴露数据库端口
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d tezbarakat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web_backend:
+    build:
+      context: .
+      dockerfile: web_backend/Dockerfile
+    container_name: tezbarakat_backend_dev
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./sessions:/app/sessions
+      - ./logs:/app/logs
+      - ./web_backend:/app  # 开发环境挂载源代码
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/tezbarakat
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=tezbarakat
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - JWT_SECRET=dev-secret-key
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - BOT_CORE_URL=http://bot_core:8001
+      - DEBUG=true  # 开发环境启用调试模式
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  bot_core:
+    build:
+      context: .
+      dockerfile: bot_core/Dockerfile
+    container_name: tezbarakat_bot_core_dev
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./sessions:/app/sessions
+      - ./logs:/app/logs
+      - ./bot_core:/app  # 开发环境挂载源代码
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://user:password@db:5432/tezbarakat
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=tezbarakat
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - DIFY_API_URL=${DIFY_API_URL:-http://localhost/v1}
+      - DIFY_API_KEY=${DIFY_API_KEY}
+      - DIFY_WORKFLOW_ID=${DIFY_WORKFLOW_ID}
+      - DIFY_KNOWLEDGE_WORKFLOW_ID=${DIFY_KNOWLEDGE_WORKFLOW_ID}
+      - DEBUG=true
+    ports:
+      - "8001:8001"  # 开发环境暴露 Bot 核心 API 端口
+    restart: unless-stopped
+
+  web_frontend:
+    build:
+      context: ./web_frontend
+      dockerfile: Dockerfile
+    container_name: tezbarakat_frontend_dev
+    ports:
+      - "8080:80"
+    depends_on:
+      - web_backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data_dev:

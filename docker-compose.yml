@@ -11,14 +11,18 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-tezbarakat}
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-    ports:
-      - "5432:5432"
+    # 生产环境不暴露数据库端口到外网，仅限内部网络访问
+    # 如需外部访问，请使用 "127.0.0.1:5432:5432"
+    # ports:
+    #   - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-tezbarakat}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    networks:
+      - tezbarakat_network
 
   web_backend:
     build:
@@ -30,6 +34,7 @@ services:
         condition: service_healthy
     volumes:
       - ./sessions:/app/sessions  # 挂载 session 文件目录
+      - ./logs:/app/logs  # 挂载日志目录
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-tezbarakat}
       - POSTGRES_HOST=db
@@ -37,14 +42,23 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-tezbarakat}
       - POSTGRES_USER=${POSTGRES_USER:-user}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-change_this_password}
       - BOT_CORE_URL=http://bot_core:8001
       - DEBUG=${DEBUG:-false}
+    # 生产环境建议通过 Nginx 反向代理，不直接暴露端口
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     restart: unless-stopped
+    networks:
+      - tezbarakat_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   bot_core:
     build:
@@ -55,9 +69,10 @@ services:
       db:
         condition: service_healthy
       web_backend:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./sessions:/app/sessions # 挂载 session 文件目录
+      - ./logs:/app/logs  # 挂载日志目录
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-tezbarakat}
       - POSTGRES_HOST=db
@@ -74,6 +89,15 @@ services:
       - DIFY_CONFIDENCE_THRESHOLD=${DIFY_CONFIDENCE_THRESHOLD:-0.7}
       - DEBUG=${DEBUG:-false}
     restart: unless-stopped
+    networks:
+      - tezbarakat_network
+    # Bot 核心服务健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   web_frontend:
     build:
@@ -81,10 +105,24 @@ services:
       dockerfile: Dockerfile
     container_name: tezbarakat_frontend
     ports:
-      - "8080:80" # Nginx 默认监听 80 端口
+      - "80:80"  # 生产环境使用 80 端口
+      - "443:443"  # HTTPS 端口（需要配置 SSL 证书）
     depends_on:
-      - web_backend
+      web_backend:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - tezbarakat_network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  tezbarakat_network:
+    driver: bridge
 
 volumes:
   postgres_data:
