@@ -1,0 +1,117 @@
+"""
+Tezbarakat Telegram Bot - Web 后台 API 主入口
+"""
+
+import sys
+import os
+
+# 添加项目根目录到路径
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+from loguru import logger
+import uvicorn
+
+from config import settings
+from models.database import init_db
+from api import api_router
+
+
+# 配置日志
+logger.add(
+    f"{settings.log_path}/web_backend.log",
+    rotation="10 MB",
+    retention="7 days",
+    level=settings.log_level,
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {module}:{function}:{line} | {message}"
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    logger.info("正在启动 Web 后台 API...")
+    
+    # 初始化数据库
+    try:
+        await init_db()
+        logger.info("数据库初始化完成")
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}")
+    
+    yield
+    
+    # 关闭时
+    logger.info("Web 后台 API 正在关闭...")
+
+
+# 创建 FastAPI 应用
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    description="Tezbarakat Telegram 智能营销机器人 - Web 管理后台 API",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json"
+)
+
+# 配置 CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# 全局异常处理
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理器"""
+    logger.error(f"未处理的异常: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": "服务器内部错误",
+            "detail": str(exc) if settings.debug else None
+        }
+    )
+
+
+# 注册 API 路由
+app.include_router(api_router)
+
+
+# 健康检查端点
+@app.get("/health")
+async def health_check():
+    """健康检查"""
+    return {"status": "healthy", "version": settings.app_version}
+
+
+# 根路径
+@app.get("/")
+async def root():
+    """根路径"""
+    return {
+        "name": settings.app_name,
+        "version": settings.app_version,
+        "docs": "/api/docs"
+    }
+
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=settings.debug,
+        log_level=settings.log_level.lower()
+    )

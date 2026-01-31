@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:14-alpine
+    container_name: tezbarakat_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tezbarakat}
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  web_backend:
+    build:
+      context: .
+      dockerfile: web_backend/Dockerfile
+    container_name: tezbarakat_backend
+    depends_on:
+      - db
+    volumes:
+      - ./web_backend:/app
+      - ./sessions:/app/sessions  # 挂载 session 文件目录
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  bot_core:
+    build:
+      context: .
+      dockerfile: bot_core/Dockerfile
+    container_name: tezbarakat_bot_core
+    depends_on:
+      - db
+      - web_backend
+    volumes:
+      - ./bot_core:/app
+      - ./sessions:/app/sessions # 挂载 session 文件目录
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  web_frontend:
+    build:
+      context: ./web_frontend
+      dockerfile: Dockerfile
+    container_name: tezbarakat_frontend
+    ports:
+      - "8080:80" # Nginx 默认监听 80 端口
+    depends_on:
+      - web_backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
