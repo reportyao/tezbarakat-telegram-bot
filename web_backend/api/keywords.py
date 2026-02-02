@@ -58,7 +58,7 @@ async def create_keyword(
     new_keyword = await service.create_keyword(keyword_text)
     
     # 通知 Bot 管理器更新关键词列表
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.reload_keywords()
     
     return KeywordResponse.model_validate(new_keyword)
@@ -76,7 +76,7 @@ async def create_keywords_batch(
     created = await service.create_keywords_batch(batch.keywords)
     
     # 通知 Bot 管理器更新关键词列表
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.reload_keywords()
     
     return BaseResponse(
@@ -127,7 +127,7 @@ async def update_keyword(
         )
     
     # 通知 Bot 管理器更新关键词列表
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.reload_keywords()
     
     return KeywordResponse.model_validate(keyword)
@@ -151,7 +151,7 @@ async def delete_keyword(
         )
     
     # 通知 Bot 管理器更新关键词列表
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.reload_keywords()
     
     return BaseResponse(success=True, message="关键词已删除")

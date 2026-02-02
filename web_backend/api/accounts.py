@@ -101,7 +101,7 @@ async def start_login(
         )
     
     # 调用 Bot 核心服务开始登录
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     try:
         result = await bot_manager.start_login(account.phone_number, account.session_name)
         
@@ -144,7 +144,7 @@ async def complete_login(
         )
     
     # 调用 Bot 核心服务完成登录
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     try:
         result = await bot_manager.complete_login(
             account.phone_number,
@@ -207,7 +207,7 @@ async def check_account_health(
             detail="账号不存在"
         )
     
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     try:
         is_healthy, message = await bot_manager.check_account_health(account.phone_number)
         
@@ -258,7 +258,7 @@ async def delete_account(
         )
     
     # 从 Bot 管理器中移除
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.remove_account(account.phone_number)
     
     # 删除数据库记录
@@ -289,7 +289,7 @@ async def reconnect_account(
             detail="账号不存在"
         )
     
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     try:
         success = await bot_manager.reconnect_account(account.phone_number, account.session_name)
         if success:

@@ -63,7 +63,7 @@ async def resolve_group(
     current_user: dict = Depends(get_current_user)
 ):
     """解析群组用户名获取信息"""
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     
     # 清理用户名
     username = username.strip()
@@ -141,7 +141,7 @@ async def create_group(
     
     # 如果只有用户名，尝试通过 Bot 获取群组 ID
     if not group_id and group_username:
-        from ..utils.bot_manager import bot_manager
+        from utils.bot_manager import bot_manager
         try:
             group_info = await bot_manager.resolve_group(group_username)
             if group_info:
@@ -176,7 +176,7 @@ async def create_group(
     )
     
     # 通知 Bot 管理器添加群组监听
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.add_group(group_id)
     
     return GroupResponse.model_validate(new_group)
@@ -225,7 +225,7 @@ async def update_group(
     
     # 如果状态变更，通知 Bot 管理器
     if group_update.is_active is not None:
-        from ..utils.bot_manager import bot_manager
+        from utils.bot_manager import bot_manager
         if group_update.is_active:
             await bot_manager.add_group(group.group_id)
         else:
@@ -252,7 +252,7 @@ async def delete_group(
         )
     
     # 从 Bot 管理器中移除
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.remove_group(group.group_id)
     
     # 删除数据库记录
@@ -284,7 +284,7 @@ async def refresh_group_info(
         )
     
     # 通过 Bot 获取最新信息
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     try:
         group_info = await bot_manager.get_group_info(group.group_id)
         if group_info:

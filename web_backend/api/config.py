@@ -70,7 +70,7 @@ async def update_config(
     config = await service.set_config(key, config_update.value)
     
     # 通知 Bot 管理器重新加载配置
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.reload_config()
     
     return ConfigResponse.model_validate(config)
@@ -87,7 +87,7 @@ async def update_configs_batch(
     await service.set_configs_batch(batch.configs)
     
     # 通知 Bot 管理器重新加载配置
-    from ..utils.bot_manager import bot_manager
+    from utils.bot_manager import bot_manager
     await bot_manager.reload_config()
     
     return BaseResponse(
