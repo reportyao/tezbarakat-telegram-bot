@@ -73,7 +73,8 @@ class DifyService:
                         "inputs": {
                             "user_message": message_text,
                             "user_id": str(user_id),
-                            "username": username or ""
+                            "username": username or "",
+                            "current_stage": "initial"
                         },
                         "response_mode": "blocking",
                         "user": f"tg_user_{user_id}"
