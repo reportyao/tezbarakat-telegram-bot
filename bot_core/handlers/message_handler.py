@@ -408,11 +408,21 @@ class MessageHandler:
                     # 统计：阶段达成
                     await db_service.increment_stage_stat(next_stage)
                     
-                    # 如果到达 Stage 5（提供链接），记录完成
-                    if next_stage >= 5:
+                    # 如果到达 Stage 5（提供链接），记录完成并附加邀请链接
+                    if next_stage >= bot_settings.invite_link_stage:
                         await db_service.increment_conversation_completed()
+                        await db_service.increment_links_provided()
+                        # 在回复后附加邀请链接
+                        if bot_settings.invite_link and reply_text:
+                            reply_text = f"{reply_text}\n\n{bot_settings.invite_link}"
+                            logger.info(f"已附加邀请链接到回复: user={user_id}")
                 else:
-                    # 对话结束
+                    # 对话结束，但如果还没发送链接，则附加链接
+                    if current_stage < bot_settings.invite_link_stage and bot_settings.invite_link and reply_text:
+                        reply_text = f"{reply_text}\n\n{bot_settings.invite_link}"
+                        await db_service.increment_links_provided()
+                        logger.info(f"对话结束前附加邀请链接: user={user_id}")
+                    
                     await db_service.update_conversation(
                         conversation_id=conversation.id,
                         current_stage=6,

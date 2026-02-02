@@ -120,6 +120,16 @@ class BotSettings(BaseSettings):
         description="私信回复模板"
     )
     
+    # 邀请链接配置
+    invite_link: str = Field(
+        default="https://t.me/tezbarakatbot/shoppp?startapp=LMBCSY0D",
+        description="TezBarakat 邀请链接"
+    )
+    invite_link_stage: int = Field(
+        default=5,
+        description="发送邀请链接的对话阶段（Stage 5 = 提供链接）"
+    )
+    
     # 简单延迟配置（兼容旧代码）
     reply_delay_seconds: int = Field(
         default=30,
