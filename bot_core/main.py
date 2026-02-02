@@ -252,6 +252,33 @@ async def reset_counters_loop():
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Bot 核心服务 API 启动中...")
+    
+    # 加载数据库中已有的账号
+    try:
+        accounts = await db_service.get_all_accounts()
+        logger.info(f"从数据库加载到 {len(accounts)} 个账号")
+        
+        for account in accounts:
+            if account.status == 'active':
+                phone = account.phone_number
+                session_name = account.session_name
+                
+                logger.info(f"尝试连接账号: {phone} (session: {session_name})")
+                try:
+                    success = await client_manager.connect_existing(phone, session_name)
+                    if success:
+                        logger.info(f"账号 {phone} 连接成功")
+                        # 记录用户 ID
+                        user_id = await client_manager.get_user_id(phone)
+                        if user_id:
+                            message_handler.add_our_user_id(user_id)
+                    else:
+                        logger.warning(f"账号 {phone} 连接失败")
+                except Exception as e:
+                    logger.error(f"连接账号 {phone} 时出错: {e}")
+    except Exception as e:
+        logger.error(f"加载账号失败: {e}")
+    
     yield
     logger.info("Bot 核心服务 API 关闭中...")
     await stop_bot()

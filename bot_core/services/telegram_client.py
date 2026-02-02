@@ -364,12 +364,20 @@ class TelegramClientManager:
     
     async def resolve_username(self, username: str) -> Optional[dict]:
         """解析用户名获取实体信息"""
+        logger.info(f"开始解析用户名: {username}")
         client = self._main_client or next(iter(self._clients.values()), None)
         if not client:
+            logger.error("没有可用的 Telegram 客户端")
             return None
+        logger.info(f"使用客户端: {client}")
         
         try:
-            entity = await client.get_entity(username)
+            # 如果是纯数字或负数，尝试作为 ID 解析
+            if isinstance(username, str) and (username.lstrip("-").isdigit()):
+                entity_id = int(username)
+                entity = await client.get_entity(entity_id)
+            else:
+                entity = await client.get_entity(username)
             
             if isinstance(entity, (Chat, Channel)):
                 return {
@@ -388,7 +396,9 @@ class TelegramClientManager:
                 }
             return None
         except Exception as e:
-            logger.error(f"解析用户名失败: {e}")
+            import traceback
+            logger.error(f"解析用户名失败 (username={username}): {type(e).__name__}: {e}")
+            logger.error(f"详细错误: {traceback.format_exc()}")
             return None
     
     async def get_entity_info(self, entity_id: int) -> Optional[dict]:
