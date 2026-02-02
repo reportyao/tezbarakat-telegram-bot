@@ -118,7 +118,9 @@ class MessageHandler:
             # Telegram 的 chat_id 对于群组是负数，需要取绝对值比较
             chat_id = event.chat_id
             chat_id_abs = abs(chat_id)
+            logger.info(f"收到消息 - chat_id: {chat_id}, chat_id_abs: {chat_id_abs}, monitored: {self._monitored_groups}")
             if chat_id_abs not in self._monitored_groups:
+                logger.debug(f"群组 {chat_id_abs} 不在监听列表中")
                 return
             
             # 检查是否在活跃时段
