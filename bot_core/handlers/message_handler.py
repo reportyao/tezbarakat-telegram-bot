@@ -115,8 +115,10 @@ class MessageHandler:
         """处理群组消息"""
         try:
             # 检查是否在监听列表
+            # Telegram 的 chat_id 对于群组是负数，需要取绝对值比较
             chat_id = event.chat_id
-            if chat_id not in self._monitored_groups:
+            chat_id_abs = abs(chat_id)
+            if chat_id_abs not in self._monitored_groups:
                 return
             
             # 检查是否在活跃时段
@@ -148,7 +150,7 @@ class MessageHandler:
             if sender.bot:
                 return
             
-            logger.debug(f"收到群消息: {chat_id} - {user_id} - {text[:50]}...")
+            logger.debug(f"收到群消息: {chat_id_abs} - {user_id} - {text[:50]}...")
             
             # 1. 关键词匹配
             matched_keyword = self.match_keywords(text)
@@ -161,7 +163,7 @@ class MessageHandler:
                     logger.debug(f"用户 {user_id} 在冷却期，跳过")
                     # 保存消息记录但不处理
                     await db_service.save_message(
-                        group_id=chat_id,
+                        group_id=chat_id_abs,
                         user_id=user_id,
                         text=text,
                         message_id=message.id,
@@ -214,7 +216,7 @@ class MessageHandler:
             
             # 4. 保存消息记录
             await db_service.save_message(
-                group_id=chat_id,
+                group_id=chat_id_abs,
                 user_id=user_id,
                 text=text,
                 message_id=message.id,
@@ -238,7 +240,7 @@ class MessageHandler:
                     event=event,
                     user_id=user_id,
                     username=username,
-                    group_id=chat_id,
+                    group_id=chat_id_abs,
                     dify_result=dify_result
                 )
                 
