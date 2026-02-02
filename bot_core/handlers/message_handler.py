@@ -510,9 +510,9 @@ class MessageHandler:
                                 typing_duration=typing_duration
                             )
                             
-                            # 更新统计
+                            # 更新统计（群内回复不更新 last_used_at，只有私信才更新）
                             await db_service.increment_group_reply_count(group_id)
-                            await db_service.update_account_last_used(account.id)
+                            # await db_service.update_account_last_used(account.id)  # 移除，避免影响私信发送间隔计算
                             
                             # 保存回复记录
                             await db_service.save_reply(
