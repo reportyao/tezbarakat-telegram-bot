@@ -53,7 +53,10 @@ async def load_config_from_db():
     try:
         configs = await db_service.get_all_configs()
         
+        logger.info(f"从数据库获取到 {len(configs)} 个配置项")
+        
         # 更新 bot_settings
+        updated_keys = []
         for key, value in configs.items():
             if hasattr(bot_settings, key):
                 # 处理 JSONB 值
@@ -67,15 +70,27 @@ async def load_config_from_db():
                 # 跳过空值，保留环境变量中的配置
                 if value == "" or value is None:
                     continue
-                    
+                
+                old_value = getattr(bot_settings, key)
                 setattr(bot_settings, key, value)
+                new_value = getattr(bot_settings, key)
+                
+                if old_value != new_value:
+                    updated_keys.append(f"{key}: {old_value} -> {new_value}")
+                    logger.debug(f"配置更新: {key} = {old_value} -> {new_value}")
         
         # 重新加载 Dify 服务配置
         dify_service.reload_config()
         
-        logger.info("已从数据库加载配置")
+        if updated_keys:
+            logger.info(f"已从数据库加载配置，更新了 {len(updated_keys)} 个配置项: {', '.join(updated_keys[:5])}")
+        else:
+            logger.info("已从数据库加载配置，无配置变更")
+            
+        # 记录关键配置值
+        logger.info(f"当前配置: private_message_interval_minutes={bot_settings.private_message_interval_minutes}, daily_private_message_limit={bot_settings.daily_private_message_limit}")
     except Exception as e:
-        logger.error(f"从数据库加载配置失败: {e}")
+        logger.error(f"从数据库加载配置失败: {e}", exc_info=True)
 
 
 async def start_bot():
