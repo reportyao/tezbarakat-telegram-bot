@@ -99,7 +99,10 @@ class MessageHandler:
         """检查是否在活跃时段"""
         now = datetime.now(self._timezone)
         hour = now.hour
-        return bot_settings.active_hours_start <= hour < bot_settings.active_hours_end
+        is_active = bot_settings.active_hours_start <= hour < bot_settings.active_hours_end
+        if not is_active:
+            logger.debug(f"当前不在活跃时段: 当前时间={hour}:00, 活跃时段={bot_settings.active_hours_start}:00-{bot_settings.active_hours_end}:00")
+        return is_active
     
     def match_keywords(self, text: str) -> Optional[str]:
         """匹配关键词"""
