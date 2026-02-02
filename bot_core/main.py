@@ -63,6 +63,11 @@ async def load_config_from_db():
                         value = json.loads(value)
                     except (json.JSONDecodeError, ValueError):
                         pass  # 保持原始字符串值
+                
+                # 跳过空值，保留环境变量中的配置
+                if value == "" or value is None:
+                    continue
+                    
                 setattr(bot_settings, key, value)
         
         # 重新加载 Dify 服务配置
