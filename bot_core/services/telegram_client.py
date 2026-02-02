@@ -24,7 +24,7 @@ from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
 from loguru import logger
 
-from ..config import bot_settings
+from config import bot_settings
 
 
 class TelegramClientManager:

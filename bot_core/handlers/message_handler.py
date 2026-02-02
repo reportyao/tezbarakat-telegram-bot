@@ -13,10 +13,10 @@ from telethon.tl.types import User as TelegramUser
 from loguru import logger
 import pytz
 
-from ..config import bot_settings
-from ..services.telegram_client import client_manager
-from ..services.dify_service import dify_service
-from ..services.database import db_service
+from config import bot_settings
+from services.telegram_client import client_manager
+from services.dify_service import dify_service
+from services.database import db_service
 
 
 class MessageHandler:

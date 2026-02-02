@@ -11,7 +11,7 @@ from loguru import logger
 from contextlib import asynccontextmanager
 import pytz
 
-from ..config import bot_settings
+from config import bot_settings
 
 # 导入 ORM 模型（从 web_backend 共享）
 import sys

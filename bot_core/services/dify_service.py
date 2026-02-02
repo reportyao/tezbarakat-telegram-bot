@@ -7,7 +7,7 @@ import json
 from typing import Optional, Dict, Any, Tuple
 from loguru import logger
 
-from ..config import bot_settings
+from config import bot_settings
 
 
 class DifyService:
