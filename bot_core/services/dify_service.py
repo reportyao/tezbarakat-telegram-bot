@@ -71,7 +71,7 @@ class DifyService:
                     headers=self._get_headers(),
                     json={
                         "inputs": {
-                            "message": message_text,
+                            "user_message": message_text,
                             "user_id": str(user_id),
                             "username": username or ""
                         },
@@ -131,7 +131,7 @@ class DifyService:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 payload = {
                     "inputs": {
-                        "message": message_text
+                        "user_message": message_text
                     },
                     "query": message_text,
                     "response_mode": "blocking",
