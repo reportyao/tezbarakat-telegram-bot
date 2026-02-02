@@ -543,16 +543,67 @@ class MessageHandler:
                 else:
                     logger.debug(f"群组 {group_id} 已达到每小时回复上限")
             
-            # 2. 私信回复（多轮对话的第一轮私信）
-            # 注意：在多轮对话模式下，我们不在这里发送私信
-            # 而是等待用户主动私信我们，然后在 handle_private_message 中处理
-            # 这样更自然，不会显得太主动
-            
-            # 如果需要主动私信（旧模式），可以取消下面的注释
-            # if bot_settings.enable_private_message and private_reply_text:
-            #     # 额外延迟，避免立即私信
-            #     await asyncio.sleep(random.randint(30, 120))
-            #     ... (原有的私信逻辑)
+            # 2. 主动发起私聊（多轮对话的第一轮私信）
+            if bot_settings.enable_private_message and private_reply_text:
+                # 额外延迟，避免立即私信，更自然
+                pm_delay = random.randint(30, 90)
+                logger.info(f"等待 {pm_delay} 秒后发送私信给用户 {user_id}")
+                await asyncio.sleep(pm_delay)
+                
+                # 获取可用账号
+                account = await db_service.get_available_account_for_sending()
+                
+                if account:
+                    typing_duration = random.randint(
+                        bot_settings.typing_duration_min_seconds,
+                        bot_settings.typing_duration_max_seconds
+                    )
+                    
+                    try:
+                        await client_manager.send_message(
+                            phone=account.phone_number,
+                            chat_id=user_id,
+                            text=private_reply_text,
+                            typing_duration=typing_duration
+                        )
+                        
+                        # 更新用户私信时间
+                        await db_service.update_user_last_pm_time(user_id)
+                        await db_service.update_account_last_used(account.id)
+                        
+                        # 保存回复记录
+                        await db_service.save_reply(
+                            user_id=user_id,
+                            reply_type='private',
+                            account_id=account.id,
+                            sent_text=private_reply_text,
+                            status='sent'
+                        )
+                        
+                        logger.info(f"已主动发送私信: {user_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"发送私信失败: {e}")
+                        # 保存失败记录
+                        await db_service.save_reply(
+                            user_id=user_id,
+                            reply_type='private',
+                            account_id=account.id,
+                            sent_text=private_reply_text,
+                            status='failed',
+                            error_message=str(e)
+                        )
+                        
+                        # 创建告警
+                        await db_service.create_alert(
+                            alert_type='send_failed',
+                            title='私信发送失败',
+                            message=f"向用户 {user_id} 发送私信失败: {str(e)}",
+                            severity='warning',
+                            account_id=account.id
+                        )
+                else:
+                    logger.warning("没有可用账号发送私信")
                         
         except Exception as e:
             logger.error(f"执行回复策略时出错: {e}", exc_info=True)
