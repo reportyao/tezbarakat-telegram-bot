@@ -599,6 +599,88 @@ class BotDatabaseService:
         """增加统计计数"""
         async with self.get_session() as session:
             await self._increment_stat_internal(session, field, value)
+    
+    async def increment_stage_stat(self, stage: int):
+        """增加阶段达成统计"""
+        field_map = {
+            1: 'stage_1_reached',
+            2: 'stage_2_reached',
+            3: 'stage_3_reached',
+            4: 'stage_4_reached',
+            5: 'stage_5_reached'
+        }
+        if stage in field_map:
+            await self.increment_stat(field_map[stage])
+            # Stage 5 表示提供了链接
+            if stage == 5:
+                await self.increment_stat('links_provided')
+    
+    async def increment_conversation_started(self):
+        """增加开始对话数"""
+        await self.increment_stat('conversations_started')
+    
+    async def increment_conversation_completed(self):
+        """增加完成对话数"""
+        await self.increment_stat('conversations_completed')
+    
+    async def increment_user_reply_received(self):
+        """增加收到用户回复数"""
+        await self.increment_stat('user_replies_received')
+    
+    async def get_statistics_summary(self, days: int = 7) -> Dict[str, Any]:
+        """获取统计摘要"""
+        async with self.get_session() as session:
+            start_date = date.today() - timedelta(days=days-1)
+            result = await session.execute(
+                select(Statistic).where(Statistic.date >= start_date).order_by(Statistic.date.desc())
+            )
+            stats_list = result.scalars().all()
+            
+            if not stats_list:
+                return {
+                    'total_conversations': 0,
+                    'total_completed': 0,
+                    'total_user_replies': 0,
+                    'total_private_messages': 0,
+                    'reply_rate': 0.0,
+                    'conversion_rate': 0.0,
+                    'daily_stats': []
+                }
+            
+            total_conversations = sum(s.conversations_started for s in stats_list)
+            total_completed = sum(s.conversations_completed for s in stats_list)
+            total_user_replies = sum(s.user_replies_received for s in stats_list)
+            total_private_messages = sum(s.private_messages_sent for s in stats_list)
+            
+            reply_rate = round(total_user_replies / total_private_messages * 100, 2) if total_private_messages > 0 else 0.0
+            conversion_rate = round(total_completed / total_conversations * 100, 2) if total_conversations > 0 else 0.0
+            
+            daily_stats = []
+            for s in stats_list:
+                daily_stats.append({
+                    'date': s.date.isoformat(),
+                    'conversations_started': s.conversations_started,
+                    'conversations_completed': s.conversations_completed,
+                    'user_replies_received': s.user_replies_received,
+                    'private_messages_sent': s.private_messages_sent,
+                    'reply_rate': s.reply_rate,
+                    'conversion_rate': s.conversion_rate,
+                    'stage_1_reached': s.stage_1_reached,
+                    'stage_2_reached': s.stage_2_reached,
+                    'stage_3_reached': s.stage_3_reached,
+                    'stage_4_reached': s.stage_4_reached,
+                    'stage_5_reached': s.stage_5_reached
+                })
+            
+            return {
+                'total_conversations': total_conversations,
+                'total_completed': total_completed,
+                'total_user_replies': total_user_replies,
+                'total_private_messages': total_private_messages,
+                'reply_rate': reply_rate,
+                'conversion_rate': conversion_rate,
+                'daily_stats': daily_stats
+            }
 
 
 # 全局数据库服务实例

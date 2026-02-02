@@ -250,6 +250,10 @@ class MessageHandler:
                         )
                         
                         logger.info(f"创建多轮对话: user={user_id}, stage=0->{next_stage}, intent={matched_keyword}")
+                        
+                        # 统计：新对话开始
+                        await db_service.increment_conversation_started()
+                        await db_service.increment_stage_stat(next_stage)
                 else:
                     # 不使用 Dify，直接使用模板回复
                     triggered_dify = True  # 关键词匹配即触发
@@ -389,6 +393,9 @@ class MessageHandler:
                 else:
                     new_history = conversation_history
                 
+                # 统计：收到用户回复
+                await db_service.increment_user_reply_received()
+                
                 # 更新对话状态
                 if should_continue:
                     await db_service.update_conversation(
@@ -397,6 +404,13 @@ class MessageHandler:
                         conversation_history=new_history
                     )
                     logger.info(f"多轮对话继续: user={user_id}, stage={current_stage}->{next_stage}")
+                    
+                    # 统计：阶段达成
+                    await db_service.increment_stage_stat(next_stage)
+                    
+                    # 如果到达 Stage 5（提供链接），记录完成
+                    if next_stage >= 5:
+                        await db_service.increment_conversation_completed()
                 else:
                     # 对话结束
                     await db_service.update_conversation(

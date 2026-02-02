@@ -244,23 +244,60 @@ class Alert(Base):
 
 
 class Statistic(Base):
-    """统计数据表"""
+    """统计数据表（包含转化率/回复率统计）"""
     __tablename__ = "statistics"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, unique=True, default=func.current_date())
-    total_messages_monitored: Mapped[int] = mapped_column(Integer, default=0)
-    keyword_triggered_count: Mapped[int] = mapped_column(Integer, default=0)
-    dify_triggered_count: Mapped[int] = mapped_column(Integer, default=0)
-    group_replies_sent: Mapped[int] = mapped_column(Integer, default=0)
-    private_messages_sent: Mapped[int] = mapped_column(Integer, default=0)
-    new_users_count: Mapped[int] = mapped_column(Integer, default=0)
-    active_accounts_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # 基础统计
+    total_messages_monitored: Mapped[int] = mapped_column(Integer, default=0)  # 监听到的消息数
+    keyword_triggered_count: Mapped[int] = mapped_column(Integer, default=0)   # 关键词触发数
+    dify_triggered_count: Mapped[int] = mapped_column(Integer, default=0)      # Dify 触发数
+    group_replies_sent: Mapped[int] = mapped_column(Integer, default=0)        # 群内回复数
+    private_messages_sent: Mapped[int] = mapped_column(Integer, default=0)     # 私信发送数
+    new_users_count: Mapped[int] = mapped_column(Integer, default=0)           # 新用户数
+    active_accounts_count: Mapped[int] = mapped_column(Integer, default=0)     # 活跃账号数
+    
+    # 多轮对话统计
+    conversations_started: Mapped[int] = mapped_column(Integer, default=0)     # 开始的对话数
+    conversations_completed: Mapped[int] = mapped_column(Integer, default=0)   # 完成的对话数（到达 Stage 5+）
+    user_replies_received: Mapped[int] = mapped_column(Integer, default=0)     # 收到的用户回复数
+    links_provided: Mapped[int] = mapped_column(Integer, default=0)            # 提供链接数（Stage 5）
+    
+    # 阶段进度统计
+    stage_1_reached: Mapped[int] = mapped_column(Integer, default=0)  # 到达破冰共情阶段
+    stage_2_reached: Mapped[int] = mapped_column(Integer, default=0)  # 到达埋下钩子阶段
+    stage_3_reached: Mapped[int] = mapped_column(Integer, default=0)  # 到达揭示平台阶段
+    stage_4_reached: Mapped[int] = mapped_column(Integer, default=0)  # 到达简述价值阶段
+    stage_5_reached: Mapped[int] = mapped_column(Integer, default=0)  # 到达提供链接阶段
+    
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (
         Index('idx_statistics_date', 'date'),
     )
+    
+    @property
+    def reply_rate(self) -> float:
+        """回复率 = 收到的用户回复数 / 私信发送数"""
+        if self.private_messages_sent == 0:
+            return 0.0
+        return round(self.user_replies_received / self.private_messages_sent * 100, 2)
+    
+    @property
+    def conversion_rate(self) -> float:
+        """转化率 = 完成的对话数 / 开始的对话数"""
+        if self.conversations_started == 0:
+            return 0.0
+        return round(self.conversations_completed / self.conversations_started * 100, 2)
+    
+    @property
+    def link_conversion_rate(self) -> float:
+        """链接转化率 = 提供链接数 / 开始的对话数"""
+        if self.conversations_started == 0:
+            return 0.0
+        return round(self.links_provided / self.conversations_started * 100, 2)
 
 
 async def get_db() -> AsyncSession:
