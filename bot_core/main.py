@@ -103,6 +103,15 @@ async def start_bot():
             session_name = account.session_name if hasattr(account, 'session_name') else account.get('session_name', '')
             
             if status in ['active', 'logging_in']:
+                # 跳过已经连接的账号
+                if client_manager.get_client_status(phone_number) == 'active':
+                    logger.info(f"账号 {phone_number} 已经连接，跳过")
+                    # 确保记录用户 ID
+                    user_id = await client_manager.get_user_id(phone_number)
+                    if user_id:
+                        message_handler.add_our_user_id(user_id)
+                    continue
+                    
                 try:
                     success = await client_manager.connect_existing(
                         phone=phone_number,
