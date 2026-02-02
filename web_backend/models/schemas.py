@@ -43,7 +43,7 @@ class AccountCreate(AccountBase):
 
 class AccountLogin(BaseModel):
     """账号登录请求"""
-    phone_number: str = Field(..., description="手机号")
+    phone_number: Optional[str] = Field(None, description="手机号")
     code: Optional[str] = Field(None, description="验证码")
     password: Optional[str] = Field(None, description="两步验证密码")
 
