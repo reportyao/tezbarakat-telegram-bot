@@ -274,6 +274,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"从数据库加载配置失败: {e}")
     
+    # 先初始化消息处理器，确保在连接账号之前注册好处理函数
+    try:
+        await message_handler.initialize()
+        logger.info("消息处理器已初始化")
+    except Exception as e:
+        logger.error(f"初始化消息处理器失败: {e}")
+    
     # 加载数据库中已有的账号
     try:
         accounts = await db_service.get_all_accounts()
