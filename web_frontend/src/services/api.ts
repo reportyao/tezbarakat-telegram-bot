@@ -62,6 +62,41 @@ export const authApi = {
 // 仪表盘 API
 // =====================================================
 
+// 转化率统计数据类型
+export interface ConversionStats {
+  summary: {
+    total_conversations: number;
+    total_completed: number;
+    total_user_replies: number;
+    total_private_messages: number;
+    total_links_provided: number;
+    reply_rate: number;
+    conversion_rate: number;
+    link_conversion_rate: number;
+  };
+  stage_stats: {
+    stage_1: number;
+    stage_2: number;
+    stage_3: number;
+    stage_4: number;
+    stage_5: number;
+  };
+  daily_stats: Array<{
+    date: string;
+    conversations_started: number;
+    conversations_completed: number;
+    user_replies_received: number;
+    private_messages_sent: number;
+    reply_rate: number;
+    conversion_rate: number;
+    stage_1_reached: number;
+    stage_2_reached: number;
+    stage_3_reached: number;
+    stage_4_reached: number;
+    stage_5_reached: number;
+  }>;
+}
+
 export const dashboardApi = {
   getData: async (): Promise<DashboardData> => {
     const response = await api.get<DashboardData>('/dashboard');
@@ -80,6 +115,12 @@ export const dashboardApi = {
 
   testDify: async (): Promise<BaseResponse> => {
     const response = await api.post<BaseResponse>('/bot/test-dify');
+    return response.data;
+  },
+
+  // 获取转化率统计数据
+  getConversionStats: async (days: number = 7): Promise<ConversionStats> => {
+    const response = await api.get<ConversionStats>('/dashboard/conversion', { params: { days } });
     return response.data;
   },
 };

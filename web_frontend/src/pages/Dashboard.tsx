@@ -10,6 +10,10 @@ import {
   Play,
   Square,
   RefreshCw,
+  TrendingUp,
+  Target,
+  Link,
+  MessageCircle,
 } from 'lucide-react';
 import {
   LineChart,
@@ -21,8 +25,11 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  Legend,
+  AreaChart,
+  Area,
 } from 'recharts';
-import { dashboardApi } from '@/services/api';
+import { dashboardApi, ConversionStats } from '@/services/api';
 import { useAppStore } from '@/store';
 import { formatUptime, formatDateTime, formatNumber } from '@/utils';
 import { Button, Card, CardHeader, CardContent, Badge, Loading } from '@/components/ui';
@@ -36,6 +43,13 @@ export default function Dashboard() {
     queryKey: ['dashboard'],
     queryFn: dashboardApi.getData,
     refetchInterval: 30000, // 每30秒刷新
+  });
+
+  // 获取转化率统计数据
+  const { data: conversionData } = useQuery({
+    queryKey: ['conversion-stats'],
+    queryFn: () => dashboardApi.getConversionStats(7),
+    refetchInterval: 60000, // 每60秒刷新
   });
 
   // Bot 控制
@@ -86,6 +100,41 @@ export default function Dashboard() {
       bgColor: 'bg-orange-100',
     },
   ];
+
+  // 转化率统计卡片
+  const conversionCards = conversionData ? [
+    {
+      title: '开始对话',
+      value: conversionData.summary.total_conversations,
+      icon: MessageCircle,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-100',
+    },
+    {
+      title: '用户回复',
+      value: conversionData.summary.total_user_replies,
+      subValue: `回复率 ${(conversionData.summary.reply_rate * 100).toFixed(1)}%`,
+      icon: Users,
+      color: 'text-green-600',
+      bgColor: 'bg-green-100',
+    },
+    {
+      title: '完成转化',
+      value: conversionData.summary.total_completed,
+      subValue: `转化率 ${(conversionData.summary.conversion_rate * 100).toFixed(1)}%`,
+      icon: Target,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-100',
+    },
+    {
+      title: '发送链接',
+      value: conversionData.summary.total_links_provided,
+      subValue: `链接率 ${(conversionData.summary.link_conversion_rate * 100).toFixed(1)}%`,
+      icon: Link,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-100',
+    },
+  ] : [];
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -180,6 +229,143 @@ export default function Dashboard() {
           </Card>
         ))}
       </div>
+
+      {/* 转化率统计区域 */}
+      {conversionData && (
+        <>
+          <div className="flex items-center space-x-2 mt-8">
+            <TrendingUp className="w-5 h-5 text-green-600" />
+            <h2 className="text-xl font-bold text-gray-900">转化率统计（近7天）</h2>
+          </div>
+
+          {/* 转化率统计卡片 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {conversionCards.map((stat) => (
+              <Card key={stat.title}>
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500">{stat.title}</p>
+                      <p className="text-2xl font-bold mt-1">{formatNumber(stat.value)}</p>
+                      {stat.subValue && (
+                        <p className="text-sm text-green-600 mt-1">{stat.subValue}</p>
+                      )}
+                    </div>
+                    <div className={`p-3 rounded-full ${stat.bgColor}`}>
+                      <stat.icon className={`w-6 h-6 ${stat.color}`} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* 对话阶段漏斗 */}
+          <Card>
+            <CardHeader>
+              <h3 className="text-lg font-semibold">对话阶段漏斗</h3>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-5 gap-4">
+                {[
+                  { stage: 1, label: '破冰共情', value: conversionData.stage_stats.stage_1, color: 'bg-blue-500' },
+                  { stage: 2, label: '埋下钩子', value: conversionData.stage_stats.stage_2, color: 'bg-green-500' },
+                  { stage: 3, label: '揭示平台', value: conversionData.stage_stats.stage_3, color: 'bg-yellow-500' },
+                  { stage: 4, label: '简述价值', value: conversionData.stage_stats.stage_4, color: 'bg-orange-500' },
+                  { stage: 5, label: '提供链接', value: conversionData.stage_stats.stage_5, color: 'bg-purple-500' },
+                ].map((item) => (
+                  <div key={item.stage} className="text-center">
+                    <div className={`${item.color} text-white rounded-lg p-4 mb-2`}>
+                      <p className="text-2xl font-bold">{item.value}</p>
+                    </div>
+                    <p className="text-sm font-medium text-gray-700">Stage {item.stage}</p>
+                    <p className="text-xs text-gray-500">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* 转化率趋势图 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold">对话与转化趋势</h3>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={conversionData.daily_stats}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Area
+                        type="monotone"
+                        dataKey="conversations_started"
+                        stackId="1"
+                        stroke="#3b82f6"
+                        fill="#93c5fd"
+                        name="开始对话"
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="user_replies_received"
+                        stackId="2"
+                        stroke="#10b981"
+                        fill="#6ee7b7"
+                        name="用户回复"
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="conversations_completed"
+                        stackId="3"
+                        stroke="#8b5cf6"
+                        fill="#c4b5fd"
+                        name="完成转化"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold">转化率趋势</h3>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={conversionData.daily_stats}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis tickFormatter={(value) => `${(value * 100).toFixed(0)}%`} />
+                      <Tooltip formatter={(value: number) => `${(value * 100).toFixed(1)}%`} />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="reply_rate"
+                        stroke="#10b981"
+                        strokeWidth={2}
+                        name="回复率"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="conversion_rate"
+                        stroke="#8b5cf6"
+                        strokeWidth={2}
+                        name="转化率"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
 
       {/* 图表区域 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
