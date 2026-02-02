@@ -253,6 +253,13 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Bot 核心服务 API 启动中...")
     
+    # 从数据库加载配置
+    try:
+        await load_config_from_db()
+        logger.info("已从数据库加载配置")
+    except Exception as e:
+        logger.error(f"从数据库加载配置失败: {e}")
+    
     # 加载数据库中已有的账号
     try:
         accounts = await db_service.get_all_accounts()
