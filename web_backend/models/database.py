@@ -183,7 +183,7 @@ class Reply(Base):
 
 
 class Conversation(Base):
-    """对话记录表"""
+    """对话记录表（支持多轮对话获客）"""
     __tablename__ = "conversations"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -194,6 +194,12 @@ class Conversation(Base):
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    
+    # 多轮对话字段
+    current_stage: Mapped[int] = mapped_column(Integer, default=0)  # 当前对话阶段 (0-6)
+    conversation_history: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 对话历史
+    original_intent: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # 原始意图/关键词
+    user_language: Mapped[str] = mapped_column(String(10), default='ru')  # 用户语言 (ru/tj/mixed)
     
     # 关系
     account: Mapped[Optional["Account"]] = relationship("Account", back_populates="conversations")

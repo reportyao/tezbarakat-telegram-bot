@@ -1,6 +1,6 @@
 """
 Tezbarakat Telegram Bot - 消息处理器
-处理群组消息和私信
+处理群组消息和私信，支持多轮对话获客
 """
 
 import asyncio
@@ -17,6 +17,24 @@ from config import bot_settings
 from services.telegram_client import client_manager
 from services.dify_service import dify_service
 from services.database import db_service
+
+
+def detect_language(text: str) -> str:
+    """检测文本语言（俄语/塔吉克语/混合）"""
+    # 塔吉克语特有字符
+    tajik_chars = set('ғҒӣӢқҚӯҮҳҲҷҶ')
+    # 西里尔字母
+    cyrillic_chars = set('абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ')
+    
+    has_tajik = any(c in tajik_chars for c in text)
+    has_cyrillic = any(c in cyrillic_chars for c in text)
+    
+    if has_tajik:
+        return "tj" if not has_cyrillic else "mixed"
+    elif has_cyrillic:
+        return "ru"
+    else:
+        return "ru"  # 默认俄语
 
 
 class MessageHandler:
@@ -106,6 +124,13 @@ class MessageHandler:
             first_name=first_name or ""
         )
     
+    def _build_conversation_history(self, existing_history: str, user_message: str, bot_reply: str) -> str:
+        """构建对话历史"""
+        new_entry = f"用户: {user_message}\n助手: {bot_reply}"
+        if existing_history:
+            return f"{existing_history}\n{new_entry}"
+        return new_entry
+    
     async def handle_group_message(
         self,
         event: events.NewMessage.Event,
@@ -183,17 +208,48 @@ class MessageHandler:
                 # 增加关键词命中计数
                 await db_service.increment_keyword_hit(matched_keyword)
                 
+                # 检测用户语言
+                user_language = detect_language(text)
+                
                 # 检查是否启用 Dify 分析
                 if bot_settings.enable_dify_analysis:
-                    # 调用 Dify 分析意图
+                    # 调用 Dify 多轮对话工作流（首次触发，stage=0）
                     dify_result = await dify_service.analyze_intent(
                         message_text=text,
                         user_id=user_id,
-                        username=username
+                        username=username,
+                        current_stage=0,  # 首次触发
+                        conversation_history="",
+                        original_intent=matched_keyword,
+                        user_language=user_language
                     )
                     
-                    triggered_dify = dify_result.get("is_opportunity", False)
+                    triggered_dify = dify_result.get("should_continue", False)
                     dify_confidence = dify_result.get("confidence", 0)
+                    
+                    # 如果 Dify 返回应该继续对话，创建对话记录
+                    if triggered_dify:
+                        # 创建新的对话记录
+                        conversation = await db_service.get_or_create_conversation(
+                            user_id=user_id,
+                            original_intent=matched_keyword,
+                            user_language=user_language
+                        )
+                        
+                        # 更新对话状态
+                        next_stage = dify_result.get("next_stage", 1)
+                        reply_text = dify_result.get("private_reply", "") or dify_result.get("group_reply", "")
+                        new_history = self._build_conversation_history("", text, reply_text)
+                        
+                        await db_service.update_conversation(
+                            conversation_id=conversation.id,
+                            current_stage=next_stage,
+                            conversation_history=new_history,
+                            original_intent=matched_keyword,
+                            user_language=user_language
+                        )
+                        
+                        logger.info(f"创建多轮对话: user={user_id}, stage=0->{next_stage}, intent={matched_keyword}")
                 else:
                     # 不使用 Dify，直接使用模板回复
                     triggered_dify = True  # 关键词匹配即触发
@@ -202,6 +258,7 @@ class MessageHandler:
                     # 构建模板回复
                     dify_result = {
                         "is_opportunity": True,
+                        "should_continue": True,
                         "confidence": 1.0,
                         "group_reply": self._format_template(
                             bot_settings.group_reply_template,
@@ -213,7 +270,8 @@ class MessageHandler:
                             username=username,
                             first_name=first_name
                         ),
-                        "category": "keyword_match"
+                        "category": "keyword_match",
+                        "next_stage": 1
                     }
             
             # 4. 保存消息记录
@@ -255,7 +313,7 @@ class MessageHandler:
         phone: str,
         client: TelegramClient
     ):
-        """处理私信消息"""
+        """处理私信消息（多轮对话）"""
         try:
             # 获取消息信息
             message = event.message
@@ -285,25 +343,70 @@ class MessageHandler:
             
             # 检查是否启用 Dify 分析
             if bot_settings.enable_dify_analysis:
-                # 获取或创建对话
-                conversation = await db_service.get_or_create_conversation(user_id)
+                # 获取用户的活跃对话
+                conversation = await db_service.get_active_conversation(user_id)
                 
-                # 获取现有的 Dify 对话 ID（可能为 None）
-                existing_conversation_id = getattr(conversation, 'dify_conversation_id', None)
+                if not conversation:
+                    # 没有活跃对话，可能是用户主动发起的私信
+                    # 创建新对话，从 stage 1 开始
+                    user_language = detect_language(text)
+                    conversation = await db_service.get_or_create_conversation(
+                        user_id=user_id,
+                        original_intent="user_initiated",
+                        user_language=user_language
+                    )
+                    logger.info(f"用户 {user_id} 主动发起私信，创建新对话")
                 
-                # 调用 Dify 知识库对话
-                reply_text, new_conversation_id = await dify_service.chat_with_knowledge(
+                # 获取对话状态
+                current_stage = getattr(conversation, 'current_stage', 1) or 1
+                conversation_history = getattr(conversation, 'conversation_history', "") or ""
+                original_intent = getattr(conversation, 'original_intent', "") or ""
+                user_language = getattr(conversation, 'user_language', "ru") or "ru"
+                
+                # 如果对话已经结束（stage >= 6），不再回复
+                if current_stage >= 6:
+                    logger.info(f"用户 {user_id} 的对话已结束 (stage={current_stage})")
+                    return
+                
+                # 调用 Dify 多轮对话工作流
+                reply_text, _, workflow_result = await dify_service.chat_with_knowledge(
                     message_text=text,
                     user_id=user_id,
-                    conversation_id=existing_conversation_id
+                    conversation_id=getattr(conversation, 'dify_conversation_id', None),
+                    current_stage=current_stage,
+                    conversation_history=conversation_history,
+                    original_intent=original_intent,
+                    user_language=user_language
                 )
                 
-                # 更新对话记录
-                if new_conversation_id:
+                # 获取下一阶段
+                should_continue = workflow_result.get("should_continue", False)
+                next_stage = workflow_result.get("next_stage", current_stage + 1)
+                
+                # 更新对话历史
+                if reply_text:
+                    new_history = self._build_conversation_history(conversation_history, text, reply_text)
+                else:
+                    new_history = conversation_history
+                
+                # 更新对话状态
+                if should_continue:
                     await db_service.update_conversation(
                         conversation_id=conversation.id,
-                        dify_conversation_id=new_conversation_id
+                        current_stage=next_stage,
+                        conversation_history=new_history
                     )
+                    logger.info(f"多轮对话继续: user={user_id}, stage={current_stage}->{next_stage}")
+                else:
+                    # 对话结束
+                    await db_service.update_conversation(
+                        conversation_id=conversation.id,
+                        current_stage=6,
+                        conversation_history=new_history,
+                        status='closed'
+                    )
+                    logger.info(f"多轮对话结束: user={user_id}, stage={current_stage}->6")
+                
             else:
                 # 不使用 Dify，使用模板回复
                 reply_text = self._format_template(
@@ -311,7 +414,6 @@ class MessageHandler:
                     username=username,
                     first_name=first_name
                 )
-                new_conversation_id = None
             
             # 发送回复
             if reply_text:
@@ -342,7 +444,6 @@ class MessageHandler:
                         user_id=user_id,
                         reply_type='private',
                         sent_text=reply_text,
-                        conversation_id=new_conversation_id,
                         status='sent'
                     )
                     
@@ -354,7 +455,6 @@ class MessageHandler:
                         user_id=user_id,
                         reply_type='private',
                         sent_text=reply_text,
-                        conversation_id=new_conversation_id,
                         status='failed',
                         error_message=str(e)
                     )
@@ -370,7 +470,7 @@ class MessageHandler:
         group_id: int,
         dify_result: dict
     ):
-        """执行回复策略"""
+        """执行回复策略（多轮对话第一轮）"""
         try:
             group_reply_text = dify_result.get("group_reply", "")
             private_reply_text = dify_result.get("private_reply", "")
@@ -382,7 +482,7 @@ class MessageHandler:
             )
             await asyncio.sleep(delay)
             
-            # 1. 群内回复
+            # 1. 群内回复（破冰共情阶段）
             if bot_settings.enable_group_reply and group_reply_text:
                 # 检查群组回复限制
                 can_reply = await db_service.check_group_reply_limit(group_id)
@@ -392,9 +492,8 @@ class MessageHandler:
                     account = await db_service.get_available_account_for_sending()
                     
                     if account:
-                        # 构建回复文本
-                        mention = f"@{username}" if username else ""
-                        full_reply = f"{mention} {group_reply_text}".strip()
+                        # 构建回复文本（不带 @ 提及，更自然）
+                        full_reply = group_reply_text.strip()
                         
                         # 发送打字状态和消息
                         typing_duration = random.randint(
@@ -444,65 +543,16 @@ class MessageHandler:
                 else:
                     logger.debug(f"群组 {group_id} 已达到每小时回复上限")
             
-            # 2. 私信回复
-            if bot_settings.enable_private_message and private_reply_text:
-                # 额外延迟，避免立即私信
-                await asyncio.sleep(random.randint(30, 120))
-                
-                # 获取可用账号
-                account = await db_service.get_available_account_for_sending()
-                
-                if account:
-                    typing_duration = random.randint(
-                        bot_settings.typing_duration_min_seconds,
-                        bot_settings.typing_duration_max_seconds
-                    )
-                    
-                    try:
-                        await client_manager.send_message(
-                            phone=account.phone_number,
-                            chat_id=user_id,
-                            text=private_reply_text,
-                            typing_duration=typing_duration
-                        )
-                        
-                        # 更新用户私信时间
-                        await db_service.update_user_last_pm_time(user_id)
-                        await db_service.update_account_last_used(account.id)
-                        
-                        # 保存回复记录
-                        await db_service.save_reply(
-                            user_id=user_id,
-                            reply_type='private',
-                            account_id=account.id,
-                            sent_text=private_reply_text,
-                            status='sent'
-                        )
-                        
-                        logger.info(f"已发送私信: {user_id}")
-                        
-                    except Exception as e:
-                        logger.error(f"发送私信失败: {e}")
-                        # 保存失败记录
-                        await db_service.save_reply(
-                            user_id=user_id,
-                            reply_type='private',
-                            account_id=account.id,
-                            sent_text=private_reply_text,
-                            status='failed',
-                            error_message=str(e)
-                        )
-                        
-                        # 创建告警
-                        await db_service.create_alert(
-                            alert_type='send_failed',
-                            title='私信发送失败',
-                            message=f"向用户 {user_id} 发送私信失败: {str(e)}",
-                            severity='warning',
-                            account_id=account.id
-                        )
-                else:
-                    logger.warning("没有可用账号发送私信")
+            # 2. 私信回复（多轮对话的第一轮私信）
+            # 注意：在多轮对话模式下，我们不在这里发送私信
+            # 而是等待用户主动私信我们，然后在 handle_private_message 中处理
+            # 这样更自然，不会显得太主动
+            
+            # 如果需要主动私信（旧模式），可以取消下面的注释
+            # if bot_settings.enable_private_message and private_reply_text:
+            #     # 额外延迟，避免立即私信
+            #     await asyncio.sleep(random.randint(30, 120))
+            #     ... (原有的私信逻辑)
                         
         except Exception as e:
             logger.error(f"执行回复策略时出错: {e}", exc_info=True)

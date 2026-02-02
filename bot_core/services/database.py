@@ -435,7 +435,9 @@ class BotDatabaseService:
     async def get_or_create_conversation(
         self,
         user_id: int,
-        account_id: int = None
+        account_id: int = None,
+        original_intent: str = None,
+        user_language: str = "ru"
     ) -> Conversation:
         """获取或创建对话"""
         async with self.get_session() as session:
@@ -451,7 +453,11 @@ class BotDatabaseService:
             if not conversation:
                 conversation = Conversation(
                     user_id=user_id,
-                    account_id=account_id
+                    account_id=account_id,
+                    current_stage=0,
+                    conversation_history="",
+                    original_intent=original_intent,
+                    user_language=user_language
                 )
                 session.add(conversation)
                 await session.flush()
@@ -461,7 +467,12 @@ class BotDatabaseService:
     async def update_conversation(
         self,
         conversation_id: int,
-        dify_conversation_id: str = None
+        dify_conversation_id: str = None,
+        current_stage: int = None,
+        conversation_history: str = None,
+        original_intent: str = None,
+        user_language: str = None,
+        status: str = None
     ):
         """更新对话"""
         async with self.get_session() as session:
@@ -469,13 +480,44 @@ class BotDatabaseService:
                 "message_count": Conversation.message_count + 1,
                 "last_message_at": get_utc_now()
             }
-            if dify_conversation_id:
+            if dify_conversation_id is not None:
                 values["dify_conversation_id"] = dify_conversation_id
+            if current_stage is not None:
+                values["current_stage"] = current_stage
+            if conversation_history is not None:
+                values["conversation_history"] = conversation_history
+            if original_intent is not None:
+                values["original_intent"] = original_intent
+            if user_language is not None:
+                values["user_language"] = user_language
+            if status is not None:
+                values["status"] = status
             
             await session.execute(
                 update(Conversation)
                 .where(Conversation.id == conversation_id)
                 .values(**values)
+            )
+    
+    async def get_active_conversation(self, user_id: int) -> Optional[Conversation]:
+        """获取用户的活跃对话"""
+        async with self.get_session() as session:
+            result = await session.execute(
+                select(Conversation)
+                .where(Conversation.user_id == user_id)
+                .where(Conversation.status == 'active')
+                .order_by(Conversation.last_message_at.desc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+    
+    async def close_conversation(self, conversation_id: int):
+        """关闭对话"""
+        async with self.get_session() as session:
+            await session.execute(
+                update(Conversation)
+                .where(Conversation.id == conversation_id)
+                .values(status='closed', last_message_at=get_utc_now())
             )
     
     # =====================================================

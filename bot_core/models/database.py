@@ -192,6 +192,11 @@ class Conversation(Base):
     dify_conversation_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default='active')
     message_count: Mapped[int] = mapped_column(Integer, default=0)
+    # 多轮对话状态管理
+    current_stage: Mapped[int] = mapped_column(Integer, default=0)  # 当前对话阶段 0-6
+    conversation_history: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 对话历史
+    original_intent: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 原始意图
+    user_language: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # 用户语言 ru/tj/mixed
     last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     
