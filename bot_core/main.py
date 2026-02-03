@@ -322,6 +322,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"加载账号失败: {e}")
     
+    # 设置 Bot 状态为运行中
+    if client_manager.connected_count > 0:
+        bot_state.running = True
+        bot_state.start_time = datetime.now()
+        logger.info(f"Bot 核心服务已启动，连接了 {client_manager.connected_count} 个账号")
+    
     yield
     logger.info("Bot 核心服务 API 关闭中...")
     await stop_bot()
